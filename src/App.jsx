@@ -1,14 +1,12 @@
-
 import Hero from './Components/Hero'
 import Navbar from './Components/Navbar'
-import Watchlist from './Components/WatchList'
+import Watchlist from './Components/Watchlist'
 
 function App() {
-
   return (
     <>
-      <Navbar/>
-      <Hero/>
+      <Navbar />
+      <Hero />
       <Watchlist/>
     </>
   )
