@@ -1,0 +1,288 @@
+.hero.hero-full-image {
+    position: relative;
+    isolation: isolate;
+    width: 100%;
+    max-width: none;
+    min-height: 590px;
+    padding: 90px clamp(25px, 7vw, 100px);
+    display: flex;
+    align-items: center;
+    background-color: #123b29;
+    background-image: linear-gradient(90deg, #031e13e6, #031e13b8 42%, #031e132e), url(/src/assets/images/mandi-market.jpg);
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    border-radius: 0;
+}
+@media (max-width: 650px) {
+    .hero.hero-full-image {
+        min-height: 600px;
+        padding: 65px 24px;
+        background-position: 58% center;
+        background-image: linear-gradient(90deg, #031e13e0, #031e1385), url(/mandi-market.jpg);
+    }
+}
+
+@media (max-width: 650px) {
+    .hero {
+        grid-template-columns: 1fr;
+        padding: 38px 20px 30px;
+        gap: 28px;
+    }
+}
+@media (max-width: 900px) {
+    .hero {
+        gap: 28px;
+        padding-top: 48px;
+    }
+}
+.hero {
+    max-width: 1320px;
+    margin: auto;
+    padding: 65px clamp(24px, 5vw, 68px) 47px;
+    display: grid;
+    grid-template-columns: .95fr 1.05fr;
+    gap: clamp(35px, 5vw, 75px);
+    align-items: center;
+}
+.hero.hero-full-image .intro {
+  color: rgb(240, 244, 237);
+  display: block;
+  font-family: "DM Sans", sans-serif;
+  font-size: 14px;
+  line-height: 26.6px;
+  margin: 0;
+  max-width: 490px;
+}
+.hero.hero-full-image .hero-copy {
+    position: relative;
+    z-index: 1;
+    max-width: 620px;
+    padding: 0;
+}
+.hero.hero-full-image .eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: #d3f6a0;
+  font-family: "DM Sans", sans-serif;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 1.7px;
+  line-height: normal;
+}
+.eyebrow {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+}
+.eyebrow, .section-kicker {
+    font-size: 10px;
+    letter-spacing: 1.7px;
+    font-weight: 800;
+    color: #557f42;
+}
+.status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #63b95a;
+    box-shadow: 0 0 0 5px #e2f0d9;
+}
+@media (max-width: 650px) {
+    .hero.hero-full-image h1 {
+        font-size: 43px;
+        letter-spacing: -2px;
+    }
+}
+.hero.hero-full-image h1 {
+  font-family: "Manrope", sans-serif;
+  font-weight: 700;
+  font-size: clamp(43px, 5vw, 67px);
+  line-height: 1.08;
+  letter-spacing: -3.2px;
+  color: #fff;
+  margin: 24px 0 19px;
+}
+@media (max-width: 650px) {
+    .hero h1 {
+        font-size: 48px;
+        letter-spacing: -2.5px;
+    }
+}
+h1 {
+    font: 800 clamp(43px, 5vw, 67px) / 1.08 Manrope, sans-serif;
+    letter-spacing: -3.2px;
+    color: var(--forest);
+    margin: 24px 0 19px;
+}
+.hero.hero-full-image h1 span {
+    color: #b7e879;
+}
+h1 span {
+    color: #77ad50;
+}
+.hero.hero-full-image .intro, .hero.hero-full-image .trust-row {
+    color: #f0f4ed;
+}
+@media (max-width: 650px) {
+    .intro {
+        font-size: 13px;
+    }
+}
+.intro {
+    max-width: 490px;
+    color: #68766c;
+    font-size: 14px;
+    line-height: 1.9;
+    margin: 0;
+}
+@media (max-width: 650px) {
+    .hero.hero-full-image .hero-actions {
+        flex-wrap: wrap;
+    }
+}
+.hero-actions {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    margin-top: 28px;
+}
+.btn-primary {
+    border: 1px solid var(--forest);
+    background: var(--forest);
+    color: #fff;
+    box-shadow: 0 9px 22px #073f2e1c;
+}
+
+.btn-primary, .btn-secondary {
+    min-height: 51px;
+    padding: 0 20px;
+    border-radius: 10px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 23px;
+    font-size: 12px;
+    font-weight: 800;
+    transition: transform .18s, box-shadow .18s;
+}
+button {
+    font: inherit;
+    cursor: pointer;
+}
+.btn-primary span {
+    color: var(--lime);
+    font-size: 17px;
+}
+.hero.hero-full-image .intro, .hero.hero-full-image .trust-row {
+    color: #f0f4ed;
+}
+.trust-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-top: 31px;
+    color: #758176;
+    font-size: 10px;
+}
+.check {
+    width: 19px;
+    height: 19px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    background: #e0f0d4;
+    color: #50863d;
+    font-weight: 800;
+}
+.hero.hero-full-image .intro, .hero.hero-full-image .trust-row {
+    color: #f0f4ed;
+}
+.hero.hero-full-image .trust-row i {
+    background: #c6d6c2;
+}
+.trust-row i {
+    width: 3px;
+    height: 3px;
+    border-radius: 50%;
+    background: #b7c5b1;
+}
+.btn-primary, .btn-secondary {
+    min-height: 51px;
+    padding: 0 20px;
+    border-radius: 10px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 23px;
+    font-size: 12px;
+    font-weight: 800;
+    transition: transform .18s, box-shadow .18s;
+}
+button {
+    font: inherit;
+    cursor: pointer;
+}
+.hero.hero-full-image h1 {
+  font-family: "Manrope", sans-serif;
+  font-size: clamp(43px, 5vw, 67px);
+  font-weight: 800;
+  line-height: 1.08;
+  letter-spacing: -3.2px;
+  color: #fff;
+  margin: 24px 0 19px;
+}
+.hero.hero-full-image .trust-row {
+  color: rgb(240, 244, 237);
+  font-family: "DM Sans", sans-serif;
+  font-size: 10px;
+  font-weight: 400;
+  line-height: normal;
+}.trust-row > span:not(.check) {
+  color: rgb(240, 244, 237);
+  font-family: "DM Sans", sans-serif;
+  font-size: 10px;
+  font-weight: 400;
+  line-height: normal;
+  white-space: nowrap;
+}
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 23px;
+
+  height: 51px;
+  min-height: 51px;
+  padding: 0 20px;
+
+  background: rgb(7, 63, 46);
+  color: #fff;
+  border: 1px solid rgb(7, 63, 46);
+  border-radius: 10px;
+
+  font-family: "DM Sans", sans-serif;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: normal;
+
+  box-shadow: 0 9px 22px rgba(7, 63, 46, 0.11);
+  cursor: pointer;
+  transition: transform 0.18s, box-shadow 0.18s;
+}
+
+.btn-primary span {
+  color: #c8f36c;
+  font-size: 17px;
+}
+.brand-text small {
+  display: block;
+  color: rgb(135, 147, 136);
+  font-family: "DM Sans", sans-serif;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  line-height: normal;
+}

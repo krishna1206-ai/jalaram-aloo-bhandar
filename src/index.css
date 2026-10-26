@@ -1,0 +1,13 @@
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=Manrope:wght@400;500;600;700;800&display=swap');
+
+:root {
+  --forest: #073f2e;
+  --green: #6fa84c;
+  --lime: #c8f36c;
+  --cream: #f7f7ef;
+  --ink: #18251d;
+  --muted: #778379;
+  --line: #e5e9df;
+  --white: #fff;
+}
