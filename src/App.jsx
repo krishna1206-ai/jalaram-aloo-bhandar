@@ -1,9 +1,8 @@
 import { Routes, Route } from "react-router-dom";
-import Hero from "./components/Hero";
-import Watchlist from "./components/Watchlist";
+import Hero from "./Components/Hero";
+import Watchlist from "./Components/Watchlist";
 import Login from "./Pages/Login";
 import Navbar from "./Components/Navbar";
-
 
 function Home() {
   return (
@@ -17,9 +16,12 @@ function Home() {
 
 export default function App() {
   return (
-    <Routes>
-      <Route path="/" element={<Home />} />
-      <Route path="/login" element={<Login />} />
-    </Routes>
+    <>
+      <Navbar />
+      <Routes>
+        <Route path="/" element={<Home />} />
+        <Route path="/login" element={<Login />} />
+      </Routes>
+    </>
   );
 }
