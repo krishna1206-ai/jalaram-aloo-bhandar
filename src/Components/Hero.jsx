@@ -1,6 +1,5 @@
 import "./Hero.css";
 import { Link } from "react-router-dom";
-import mandiImage from "../assets/images/mandi-market.jpg";
 function Hero(){
     return(
         <>
