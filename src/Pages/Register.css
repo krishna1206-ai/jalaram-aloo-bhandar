@@ -1,0 +1,444 @@
+@import url("https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap");
+
+:root {
+  --forest: #073f2e;
+  --green: #6fa84c;
+  --lime: #c8f36c;
+  --cream: #f7f7ef;
+  --ink: #18251d;
+  --muted: #778379;
+  --line: #e5e9df;
+  --white: #fff;
+}
+
+/* ---------- Page + card ---------- */
+.login-page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  font-family: "DM Sans", sans-serif;
+  color: var(--ink);
+  background-color: rgb(18, 59, 41);
+  background-image:
+    linear-gradient(90deg, rgba(3, 30, 19, 0.8), rgba(3, 30, 19, 0.55)),
+    url("../assets/images/mandi-login-bg.jpg");
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+.login-page * {
+  box-sizing: border-box;
+}
+.login-page a {
+  text-decoration: none;
+}
+
+.login-page .back-link {
+  width: 100%;
+  max-width: 420px;
+  margin: 0 auto 14px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #fff;
+}
+.login-page .login-card {
+  width: 100%;
+  max-width: 420px;
+  padding: 34px 30px;
+  background: rgba(255, 255, 255, 0.97);
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  box-shadow: rgba(0, 0, 0, 0.25) 0 22px 50px;
+}
+.login-page .register-card {
+  max-width: 600px;
+}
+/* back link lines up with the wider register card */
+.login-page:has(.register-card) .back-link {
+  max-width: 600px;
+}
+
+/* ---------- Brand ---------- */
+.login-page .login-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 26px;
+}
+.login-page .brand-mark {
+  width: 43px;
+  height: 43px;
+  display: grid;
+  place-items: center;
+  background: var(--forest);
+  border-radius: 14px;
+  color: var(--lime);
+  font: 800 14px Manrope, sans-serif;
+}
+.login-page .login-brand strong {
+  display: block;
+  font: 800 14px Manrope, sans-serif;
+  color: var(--forest);
+}
+.login-page .login-brand small {
+  display: block;
+  margin-top: 4px;
+  font-size: 9px;
+  letter-spacing: 2px;
+  color: rgb(135, 147, 136);
+  font-weight: 700;
+}
+
+/* ---------- Text ---------- */
+.login-page h1 {
+  font: 800 28px / 1.15 Manrope, sans-serif;
+  letter-spacing: -1px;
+  color: var(--forest);
+  margin: 0 0 6px;
+}
+.login-page .sub {
+  font-size: 13px;
+  color: var(--muted);
+  margin: 0 0 24px;
+}
+.login-page .demo-badge {
+  display: inline-block;
+  margin: 0 0 18px;
+  padding: 5px 12px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: rgb(85, 127, 66);
+  background: rgb(238, 246, 230);
+  border: 1px solid rgb(214, 232, 199);
+  border-radius: 20px;
+}
+.login-page .hint,
+.login-page .demo-hint {
+  font-size: 12px;
+  color: var(--muted);
+  margin: 14px 0 0;
+}
+
+/* ---------- Form ---------- */
+.login-page form {
+  display: flex;
+  flex-direction: column;
+}
+.login-page label {
+  display: block;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--forest);
+  margin: 16px 0 6px;
+}
+.login-page input,
+.login-page select {
+  width: 100%;
+  height: 46px;
+  padding: 0 14px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--ink);
+  border: 1px solid rgb(220, 229, 215);
+  border-radius: 10px;
+  background: rgb(250, 251, 247);
+  outline: none;
+}
+.login-page input:focus,
+.login-page select:focus {
+  border-color: var(--green);
+  box-shadow: rgba(111, 168, 76, 0.2) 0 0 0 3px;
+}
+.login-page input.invalid,
+.login-page select.invalid {
+  border-color: rgb(196, 84, 84);
+}
+.login-page select {
+  appearance: none;
+  cursor: pointer;
+  padding-right: 38px;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'><path d='M1 1.5l5 5 5-5' fill='none' stroke='%23073f2e' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 14px center;
+  background-size: 12px 8px;
+}
+
+/* Input with a button inside it (password Show, Send OTP) */
+.login-page .password-wrap,
+.login-page .inline-wrap {
+  position: relative;
+}
+.login-page .password-wrap input {
+  padding-right: 64px;
+}
+.login-page .inline-wrap input {
+  padding-right: 100px;
+}
+.login-page .toggle {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--green);
+  cursor: pointer;
+}
+
+/* Hidden spam-trap field */
+.login-page .hp {
+  position: absolute;
+  left: -9999px;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}
+
+.login-page .error {
+  display: block;
+  font-size: 11px;
+  line-height: 1.4;
+  color: rgb(196, 84, 84);
+  margin: 6px 0 0;
+}
+.login-page .success {
+  font-size: 12px;
+  color: rgb(67, 139, 74);
+  margin: 14px 0 0;
+  text-align: center;
+}
+.login-page .optional {
+  font-weight: 500;
+  color: rgb(135, 147, 136);
+}
+
+/* Checkbox + chips */
+.login-page .checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 16px 0 0;
+  font-weight: 500;
+  cursor: pointer;
+}
+.login-page .checkbox-row input[type="checkbox"],
+.login-page .chip input {
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  accent-color: var(--forest);
+}
+.login-page .chips {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.login-page .chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 10px 14px;
+  border: 1px solid rgb(220, 229, 215);
+  border-radius: 22px;
+  background: rgb(250, 251, 247);
+  cursor: pointer;
+}
+.login-page .row {
+  margin-top: 0;
+}
+.login-page .row > div {
+  display: flex;
+  flex-direction: column;
+}
+
+/* ---------- Buttons ---------- */
+.login-page .btn-primary,
+.login-page .btn-secondary {
+  min-height: 51px;
+  padding: 0 20px;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 23px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: transform 0.18s, box-shadow 0.18s;
+}
+.login-page .btn-primary {
+  border: 1px solid var(--forest);
+  background: var(--forest);
+  color: #fff;
+  box-shadow: rgba(7, 63, 46, 0.11) 0 9px 22px;
+}
+.login-page .btn-primary span {
+  color: var(--lime);
+  font-size: 17px;
+}
+.login-page .btn-secondary {
+  border: 1px solid rgb(220, 229, 215);
+  background: #fff;
+  color: var(--forest);
+  gap: 12px;
+}
+.login-page .btn-primary:hover,
+.login-page .btn-secondary:hover {
+  transform: translateY(-2px);
+}
+.login-page .submit {
+  margin-top: 24px;
+  width: 100%;
+}
+.login-page .nav-buttons {
+  display: flex;
+  gap: 12px;
+  margin-top: 24px;
+}
+.login-page .nav-buttons .next {
+  flex: 1;
+}
+.login-page .btn-secondary.back {
+  padding: 0 18px;
+}
+
+/* Bottom links */
+.login-page .switch-text,
+.login-page .register-link {
+  margin: 18px 0 0;
+  text-align: center;
+  font-size: 12px;
+  color: var(--muted);
+}
+.login-page .register-link {
+  display: flex;
+  justify-content: center;
+  gap: 5px;
+}
+.login-page .switch-text a,
+.login-page .register-link a {
+  color: var(--forest);
+  font-weight: 700;
+}
+
+/* ---------- Stepper (1 → 7) ---------- */
+.login-page .stepper {
+  display: flex;
+  list-style: none;
+  margin: 0 0 30px;
+  padding: 0;
+}
+.login-page .stepper li {
+  position: relative;
+  flex: 1;
+  padding: 0;
+  border: 0;
+}
+.login-page .stepper li::before {
+  content: "";
+  position: absolute;
+  top: 15px;
+  right: 50%;
+  width: 100%;
+  height: 2px;
+  background: var(--line);
+  transition: background 0.3s;
+}
+.login-page .stepper li:first-child::before {
+  display: none;
+}
+.login-page .stepper li.done::before,
+.login-page .stepper li.active::before {
+  background: var(--green);
+}
+.login-page .stepper button {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+}
+.login-page .stepper .dot {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  font: 800 11px Manrope, sans-serif;
+  color: rgb(135, 147, 136);
+  background: #fff;
+  border: 2px solid var(--line);
+  transition: 0.25s;
+}
+.login-page .stepper em {
+  font-style: normal;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  color: rgb(152, 162, 153);
+  text-align: center;
+  transition: color 0.25s;
+}
+.login-page .stepper li.active .dot {
+  color: var(--lime);
+  background: var(--forest);
+  border-color: var(--forest);
+  box-shadow: rgba(7, 63, 46, 0.12) 0 0 0 5px;
+}
+.login-page .stepper li.active em {
+  color: var(--forest);
+}
+.login-page .stepper li.done .dot {
+  color: #fff;
+  background: var(--green);
+  border-color: var(--green);
+}
+.login-page .stepper li.done em {
+  color: var(--green);
+}
+.login-page .stepper button:hover .dot {
+  border-color: var(--green);
+}
+
+/* ---------- Mobile ---------- */
+@media (max-width: 640px) {
+  .login-page .stepper em {
+    display: none;
+  }
+  .login-page .stepper li.active em {
+    display: block;
+    position: absolute;
+    top: 38px;
+    left: 50%;
+    transform: translateX(-50%);
+    white-space: nowrap;
+  }
+  .login-page .stepper {
+    margin-bottom: 44px;
+  }
+}
+@media (max-width: 520px) {
+  .login-page .login-card {
+    padding: 28px 20px;
+  }
+  .login-page .row {
+    grid-template-columns: 1fr;
+  }
+}

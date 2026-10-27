@@ -3,6 +3,7 @@ import Hero from "./Components/Hero";
 import Watchlist from "./Components/Watchlist";
 import Login from "./Pages/Login";
 import Navbar from "./Components/Navbar";
+import Register from "./Pages/Register";
 
 function Home() {
   return (
@@ -20,7 +21,9 @@ export default function App() {
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/login" element={<Login />} />
+         <Route path="/register" element={<Register />} />
       </Routes>
+
     </>
   );
 }
