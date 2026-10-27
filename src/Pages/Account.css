@@ -1,0 +1,1024 @@
+/* My account page — every rule is scoped inside .acc-page */
+.acc-page {
+  --forest: #073f2e;
+  --green: #6fa84c;
+  --lime: #c8f36c;
+  --cream: #f7f7ef;
+  --ink: #18251d;
+  --muted: #778379;
+  --line: #e5e9df;
+  --pos: #438b4a;
+  --neg: #c45454;
+  --potato: #d9a441;
+  --onion: #b6456a;
+  --garlic: #8f84c9;
+
+  min-height: 100vh;
+  background: var(--cream);
+  color: var(--ink);
+  font-family: "DM Sans", sans-serif;
+}
+.acc-page * {
+  box-sizing: border-box;
+}
+.acc-page a {
+  color: inherit;
+  text-decoration: none;
+}
+.acc-page button {
+  font: inherit;
+  cursor: pointer;
+}
+.acc-page .muted {
+  color: var(--muted);
+}
+.acc-page .small {
+  font-size: 11px;
+}
+.acc-page .pos {
+  color: var(--pos);
+}
+.acc-page .neg {
+  color: var(--neg);
+}
+.acc-page .kicker {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 1.7px;
+  color: #557f42;
+}
+
+/* ---------- Top bar ---------- */
+.acc-page .acc-top {
+  height: 72px;
+  padding: 0 clamp(18px, 6vw, 84px);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #fff;
+  border-bottom: 1px solid #e9ede5;
+}
+.acc-page .acc-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.acc-page .brand-mark {
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  background: var(--forest);
+  border-radius: 13px;
+  color: var(--lime);
+  font: 800 13px Manrope, sans-serif;
+}
+.acc-page .acc-brand-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.acc-page .acc-brand-text strong {
+  font: 800 14px Manrope, sans-serif;
+  color: #15251b;
+}
+.acc-page .acc-brand-text small {
+  font-size: 9px;
+  letter-spacing: 2px;
+  font-weight: 700;
+  color: #879388;
+}
+.acc-page .acc-user {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.acc-page .acc-hello {
+  display: flex;
+  flex-direction: column;
+  text-align: right;
+  gap: 2px;
+}
+.acc-page .acc-hello small {
+  font-size: 10px;
+  color: var(--muted);
+}
+.acc-page .acc-hello strong {
+  font: 800 13px Manrope, sans-serif;
+  color: var(--forest);
+}
+.acc-page .avatar {
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--forest);
+  color: var(--lime);
+  font: 800 12px Manrope, sans-serif;
+}
+.acc-page .logout {
+  padding: 8px 14px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--neg);
+  background: #fff;
+  border: 1px solid #f0d6d6;
+  border-radius: 20px;
+}
+.acc-page .logout:hover {
+  background: #fbeeee;
+}
+
+/* ---------- Main ---------- */
+.acc-page .acc-main {
+  max-width: 1190px;
+  margin: 0 auto;
+  padding: 28px clamp(16px, 3vw, 28px) 50px;
+}
+.acc-page .toast {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 18px;
+  padding: 12px 16px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--pos);
+  background: #eef6e6;
+  border: 1px solid #d6e8c7;
+  border-radius: 12px;
+}
+.acc-page .toast-x {
+  border: 0;
+  background: none;
+  color: var(--pos);
+  font-size: 12px;
+}
+
+/* ---------- Wallet + godown ---------- */
+.acc-page .top-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+}
+.acc-page .wallet {
+  padding: 24px;
+  border-radius: 20px;
+  color: #fff;
+  background: linear-gradient(135deg, #04281d, #0b5139);
+  box-shadow: rgba(7, 63, 46, 0.18) 0 18px 40px;
+}
+.acc-page .wallet-head,
+.acc-page .godown-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.acc-page .wallet-label {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 1.8px;
+  color: var(--lime);
+}
+.acc-page .eye {
+  padding: 5px 12px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 20px;
+}
+.acc-page .eye.light {
+  color: var(--forest);
+  background: #f1f4ee;
+  border-color: #e0e7db;
+}
+.acc-page .wallet-balance {
+  margin: 18px 0 20px;
+}
+.acc-page .wallet-balance small {
+  font-size: 11px;
+  color: #bcd3c4;
+}
+.acc-page .wallet-balance h1 {
+  margin: 4px 0 6px;
+  font: 800 clamp(30px, 4vw, 40px) Manrope, sans-serif;
+  letter-spacing: -1.4px;
+  color: #fff;
+}
+.acc-page .today {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 18px;
+  font-size: 12px;
+  font-weight: 700;
+}
+.acc-page .wallet .today.pos {
+  color: #b7e879;
+}
+.acc-page .wallet .today.neg {
+  color: #ffb3b3;
+}
+.acc-page .wallet-split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.acc-page .wallet-split div {
+  padding: 12px 14px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+}
+.acc-page .wallet-split small {
+  display: block;
+  font-size: 10px;
+  color: #bcd3c4;
+  margin-bottom: 4px;
+}
+.acc-page .wallet-split strong {
+  font: 800 15px Manrope, sans-serif;
+}
+.acc-page .wallet-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.acc-page .btn {
+  min-height: 46px;
+  padding: 0 18px;
+  font-size: 13px;
+  font-weight: 800;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  transition: transform 0.18s;
+}
+.acc-page .btn:hover {
+  transform: translateY(-2px);
+}
+.acc-page .btn.lime {
+  flex: 1;
+  color: var(--forest);
+  background: var(--lime);
+}
+.acc-page .btn.ghost {
+  flex: 1;
+  color: #fff;
+  background: transparent;
+  border-color: rgba(255, 255, 255, 0.35);
+}
+.acc-page .btn.solid {
+  flex: 1;
+  color: #fff;
+  background: var(--forest);
+}
+.acc-page .btn.outline {
+  color: var(--forest);
+  background: #fff;
+  border-color: #dce5d7;
+}
+
+.acc-page .godown-card {
+  padding: 24px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+}
+.acc-page .godown-card h2 {
+  margin: 14px 0 4px;
+  font: 800 32px Manrope, sans-serif;
+  letter-spacing: -1px;
+  color: var(--forest);
+}
+.acc-page .godown-card > .muted {
+  margin: 0;
+  font-size: 12px;
+}
+.acc-page .godown-rows {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin: 18px 0;
+}
+.acc-page .godown-rows div {
+  padding: 12px 14px;
+  background: #fafbf7;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.acc-page .godown-rows span {
+  display: block;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+.acc-page .godown-rows strong {
+  font: 800 15px Manrope, sans-serif;
+}
+.acc-page .pnl em {
+  margin-left: 6px;
+  font-style: normal;
+  font-size: 11px;
+}
+
+/* Share bar: colour per commodity */
+.acc-page .share-bar {
+  display: flex;
+  height: 10px;
+  overflow: hidden;
+  border-radius: 10px;
+  background: var(--line);
+}
+.acc-page .share-bar.thin {
+  height: 6px;
+  margin: 14px 0 6px;
+}
+.acc-page .share-bar i {
+  display: block;
+  height: 100%;
+}
+.acc-page [data-c="Potato"] {
+  background: var(--potato);
+}
+.acc-page [data-c="Onion"] {
+  background: var(--onion);
+}
+.acc-page [data-c="Garlic"] {
+  background: var(--garlic);
+}
+.acc-page .share-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin-top: 10px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.acc-page .share-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.acc-page .share-legend b {
+  width: 9px;
+  height: 9px;
+  border-radius: 3px;
+}
+
+/* ---------- Add / withdraw panel ---------- */
+.acc-page .money-panel {
+  margin-top: 18px;
+  padding: 24px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  box-shadow: rgba(22, 60, 36, 0.06) 0 12px 30px;
+}
+.acc-page .panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.acc-page .panel-head h3 {
+  margin: 0;
+  font: 800 18px Manrope, sans-serif;
+  color: var(--forest);
+}
+.acc-page .close {
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 50%;
+  background: #f1f4ee;
+  color: var(--forest);
+}
+.acc-page .money-panel label {
+  display: block;
+  margin: 16px 0 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--forest);
+}
+.acc-page .money-panel input {
+  width: 100%;
+  height: 46px;
+  padding: 0 14px;
+  font: inherit;
+  font-size: 14px;
+  color: var(--ink);
+  border: 1px solid #dce5d7;
+  border-radius: 10px;
+  background: #fafbf7;
+  outline: none;
+}
+.acc-page .money-panel input:focus {
+  border-color: var(--green);
+  box-shadow: rgba(111, 168, 76, 0.2) 0 0 0 3px;
+}
+
+.acc-page .quick,
+.acc-page .methods,
+.acc-page .upi-apps,
+.acc-page .pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.acc-page .quick {
+  margin-top: 10px;
+}
+.acc-page .quick button,
+.acc-page .methods button,
+.acc-page .upi-apps button,
+.acc-page .pills button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--forest);
+  background: #fff;
+  border: 1px solid #dce5d7;
+  border-radius: 20px;
+  transition: background 0.15s, border-color 0.15s;
+}
+.acc-page .quick button:hover,
+.acc-page .methods button:hover,
+.acc-page .upi-apps button:hover,
+.acc-page .pills button:hover {
+  border-color: var(--green);
+}
+.acc-page .quick button.on,
+.acc-page .methods button.on,
+.acc-page .pills button.on {
+  color: var(--lime);
+  background: var(--forest);
+  border-color: var(--forest);
+}
+.acc-page .upi-apps button {
+  border-radius: 12px;
+  padding: 10px 14px;
+}
+.acc-page .upi-apps button.on {
+  background: #eef6e6;
+  border-color: var(--green);
+  box-shadow: rgba(111, 168, 76, 0.2) 0 0 0 3px;
+}
+
+/* Small letter logos in place of app icons */
+.acc-page .upi-mini {
+  display: inline-flex;
+}
+.acc-page .upi-mini .upi-logo {
+  width: 16px;
+  height: 16px;
+  margin-left: -4px;
+  font-size: 7px;
+  border: 1.5px solid #fff;
+}
+.acc-page .upi-logo {
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  font: 800 9px Manrope, sans-serif;
+  font-style: normal;
+  color: #fff;
+  background: #555;
+}
+.acc-page .upi-logo[data-app="Google Pay"] {
+  background: #4285f4;
+}
+.acc-page .upi-logo[data-app="PhonePe"] {
+  background: #5f259f;
+}
+.acc-page .upi-logo[data-app="Paytm"] {
+  background: #00baf2;
+}
+.acc-page .upi-logo[data-app="BHIM"] {
+  background: #f37021;
+}
+
+.acc-page .field-hint {
+  display: block;
+  margin-top: 6px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.acc-page .card-input {
+  position: relative;
+}
+.acc-page .card-brand {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 3px 8px;
+  font-size: 10px;
+  font-weight: 800;
+  color: var(--forest);
+  background: #eef6e6;
+  border-radius: 6px;
+}
+.acc-page .card-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.acc-page .transfer-box {
+  margin-top: 16px;
+  padding: 16px;
+  background: #fafbf7;
+  border: 1px dashed #cddac6;
+  border-radius: 12px;
+}
+.acc-page .transfer-box dl {
+  margin: 10px 0 0;
+}
+.acc-page .transfer-box dl div {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 0;
+  font-size: 12px;
+  border-bottom: 1px solid #eef1ea;
+}
+.acc-page .transfer-box dt {
+  color: var(--muted);
+}
+.acc-page .transfer-box dd {
+  margin: 0;
+  font-weight: 800;
+  color: var(--forest);
+  text-align: right;
+}
+.acc-page .error {
+  display: block;
+  margin-top: 12px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--neg);
+}
+.acc-page .panel-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 20px;
+}
+.acc-page .money-panel > .muted.small {
+  margin: 12px 0 0;
+}
+
+/* ---------- Tabs ---------- */
+.acc-page .tabs {
+  display: flex;
+  gap: 4px;
+  margin: 28px 0 18px;
+  padding: 4px;
+  overflow-x: auto;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+}
+.acc-page .tabs button {
+  flex: 1;
+  padding: 11px 16px;
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+  color: var(--muted);
+  background: none;
+  border: 0;
+  border-radius: 10px;
+  transition: background 0.15s, color 0.15s;
+}
+.acc-page .tabs button:hover {
+  color: var(--forest);
+}
+.acc-page .tabs button.active {
+  color: var(--lime);
+  background: var(--forest);
+}
+
+/* ---------- Blocks ---------- */
+.acc-page .block {
+  margin-bottom: 18px;
+  padding: 22px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+}
+.acc-page .block-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.acc-page .block-head h2 {
+  margin: 6px 0 0;
+  font: 800 20px Manrope, sans-serif;
+  letter-spacing: -0.5px;
+  color: var(--forest);
+}
+.acc-page .text-btn {
+  padding: 0;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--forest);
+  background: none;
+  border: 0;
+}
+.acc-page .text-btn:hover {
+  text-decoration: underline;
+}
+.acc-page .chg {
+  padding: 4px 9px;
+  font-size: 11px;
+  font-weight: 800;
+  border-radius: 20px;
+  white-space: nowrap;
+}
+.acc-page .chg.pos {
+  background: #eaf5e3;
+}
+.acc-page .chg.neg {
+  background: #fbeaea;
+}
+
+/* Rate cards */
+.acc-page .rate-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+.acc-page .rate-card {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+}
+.acc-page .rate-img {
+  width: 100%;
+  height: 110px;
+  object-fit: cover;
+  display: block;
+}
+.acc-page .rate-body {
+  padding: 14px;
+}
+.acc-page .rate-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+}
+.acc-page .rate-top strong {
+  display: block;
+  font: 800 14px Manrope, sans-serif;
+  color: var(--forest);
+}
+.acc-page .rate-top small {
+  font-size: 11px;
+  color: var(--muted);
+}
+.acc-page .rate-price {
+  margin-top: 10px;
+  font: 800 22px Manrope, sans-serif;
+}
+.acc-page .spark {
+  display: block;
+  width: 100%;
+  height: 34px;
+  margin-top: 8px;
+}
+.acc-page .spark polyline {
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+.acc-page .spark polyline.pos {
+  stroke: var(--pos);
+}
+.acc-page .spark polyline.neg {
+  stroke: var(--neg);
+}
+
+/* Transactions */
+.acc-page .pills {
+  margin-bottom: 14px;
+}
+.acc-page .txn-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.acc-page .txn-list li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 4px;
+  border-bottom: 1px solid #f0f2ec;
+}
+.acc-page .txn-list li:last-child {
+  border-bottom: 0;
+}
+.acc-page .t-ico {
+  width: 38px;
+  height: 38px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  font-weight: 800;
+  color: var(--forest);
+  background: #eef6e6;
+}
+.acc-page .t-ico[data-t="Withdrawal"],
+.acc-page .t-ico[data-t="Charges"] {
+  color: var(--neg);
+  background: #fbeaea;
+}
+.acc-page .t-ico[data-t="Bought"] {
+  color: #8a5c14;
+  background: #fff3dc;
+}
+.acc-page .t-main {
+  flex: 1;
+  min-width: 0;
+}
+.acc-page .t-main strong {
+  display: block;
+  font-size: 13px;
+  color: var(--forest);
+}
+.acc-page .t-main small {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.acc-page .t-side {
+  text-align: right;
+}
+.acc-page .t-side strong {
+  display: block;
+  font: 800 13px Manrope, sans-serif;
+}
+.acc-page .t-side small {
+  display: block;
+  margin-top: 2px;
+  font-size: 10px;
+  color: var(--muted);
+}
+.acc-page .status {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  font-style: normal;
+  font-weight: 700;
+  color: var(--pos);
+  background: #eaf5e3;
+  border-radius: 8px;
+}
+.acc-page .status.pending {
+  color: #8a5c14;
+  background: #fff3dc;
+}
+.acc-page .empty {
+  margin: 0;
+  padding: 26px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* Godown holdings */
+.acc-page .hold-list {
+  display: grid;
+  gap: 14px;
+}
+.acc-page .hold-card {
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+}
+.acc-page .hold-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.acc-page .hold-title > div {
+  flex: 1;
+  min-width: 0;
+}
+.acc-page .hold-img {
+  width: 52px;
+  height: 52px;
+  object-fit: cover;
+  border-radius: 12px;
+}
+.acc-page .hold-title strong {
+  display: block;
+  font: 800 15px Manrope, sans-serif;
+  color: var(--forest);
+}
+.acc-page .hold-title small {
+  font-size: 11px;
+  color: var(--muted);
+}
+.acc-page .hold-stats {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 10px;
+  margin-top: 14px;
+}
+.acc-page .hold-stats div {
+  padding: 10px 12px;
+  background: #fafbf7;
+  border-radius: 10px;
+}
+.acc-page .hold-stats span {
+  display: block;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--muted);
+  margin-bottom: 3px;
+}
+.acc-page .hold-stats strong {
+  font: 800 13px Manrope, sans-serif;
+}
+.acc-page .hold-card > .muted {
+  font-size: 11px;
+}
+
+/* Profile */
+.acc-page .profile-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+}
+.acc-page .info-card {
+  padding: 22px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+}
+.acc-page .info-card.wide {
+  grid-column: 1 / -1;
+}
+.acc-page .info-card h3 {
+  margin: 0 0 12px;
+  font: 800 16px Manrope, sans-serif;
+  color: var(--forest);
+}
+.acc-page .info-card dl {
+  margin: 0;
+}
+.acc-page .info-card dl div {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  font-size: 13px;
+  border-bottom: 1px solid #f0f2ec;
+}
+.acc-page .info-card dl div:last-child {
+  border-bottom: 0;
+}
+.acc-page .info-card dt {
+  color: var(--muted);
+}
+.acc-page .info-card dd {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 700;
+  text-align: right;
+}
+.acc-page .badge {
+  padding: 3px 9px;
+  font-size: 11px;
+  font-weight: 800;
+  border-radius: 20px;
+}
+.acc-page .badge.ok {
+  color: var(--pos);
+  background: #eaf5e3;
+}
+
+/* Toggle switch */
+.acc-page .switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+.acc-page .switch input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+.acc-page .switch i {
+  position: relative;
+  width: 38px;
+  height: 22px;
+  border-radius: 22px;
+  background: #d5ddd0;
+  transition: background 0.2s;
+}
+.acc-page .switch i::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.2s;
+}
+.acc-page .switch input:checked + i {
+  background: var(--forest);
+}
+.acc-page .switch input:checked + i::after {
+  transform: translateX(16px);
+}
+.acc-page .switch input:focus-visible + i {
+  box-shadow: rgba(111, 168, 76, 0.35) 0 0 0 3px;
+}
+
+.acc-page .disclaimer {
+  margin: 26px 0 0;
+  font-size: 11px;
+  line-height: 1.7;
+  color: #899387;
+}
+
+/* ---------- Tablet / phone ---------- */
+@media (max-width: 900px) {
+  .acc-page .top-grid,
+  .acc-page .profile-grid {
+    grid-template-columns: 1fr;
+  }
+  .acc-page .rate-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .acc-page .hold-stats {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+@media (max-width: 600px) {
+  .acc-page .acc-top {
+    height: 66px;
+  }
+  .acc-page .acc-brand-text small,
+  .acc-page .acc-hello {
+    display: none;
+  }
+  .acc-page .rate-grid {
+    grid-template-columns: 1fr;
+  }
+  .acc-page .hold-stats {
+    grid-template-columns: 1fr 1fr;
+  }
+  .acc-page .wallet,
+  .acc-page .godown-card,
+  .acc-page .money-panel,
+  .acc-page .block {
+    padding: 18px;
+  }
+  .acc-page .panel-actions {
+    flex-direction: column-reverse;
+  }
+}
+
+/* UPI app icons */
+.acc-page .upi-mini img {
+  width: 16px;
+  height: 16px;
+  margin-left: -4px;
+  border-radius: 50%;
+  background: #fff;
+  border: 1.5px solid #fff;
+  object-fit: contain;
+}
+.acc-page .upi-apps img {
+  border-radius: 6px;
+  object-fit: contain;
+}

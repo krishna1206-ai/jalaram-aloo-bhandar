@@ -5,6 +5,8 @@ import Login from "./Pages/Login";
 import Navbar from "./Components/Navbar";
 import Register from "./Pages/Register";
 import Terms from "./Pages/Terms";
+import Explore from "./Pages/Explore";
+import Account from "./Pages/Account";
 
 function Home() {
   return (
@@ -24,6 +26,10 @@ export default function App() {
         <Route path="/login" element={<Login />} />
          <Route path="/register" element={<Register />} />
           <Route path="/terms" element={<Terms />} />
+          <Route path="/explore" element={<Explore />} />
+          
+          <Route path="/account" element={<Account />} />
+          
       </Routes>
 
     </>

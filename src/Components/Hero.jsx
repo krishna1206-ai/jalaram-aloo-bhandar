@@ -1,4 +1,5 @@
 import "./Hero.css";
+import { Link } from "react-router-dom";
 import mandiImage from "../assets/images/mandi-market.jpg";
 function Hero(){
     return(
@@ -14,7 +15,9 @@ function Hero(){
                     Follow potato, garlic and onion prices in one place. Explore daily price movements and manage your market activity from a simple dashboard. 
                 </p>
                 <div className="hero-actions">
-                    <a href="/Terms" className="btn-primary" >Start exploring<span>↗</span> </a>
+                    <Link to="/login" className="btn-primary">
+    Start exploring <span>↗</span>
+  </Link>
                 </div>
                 <div className="trust-row">
                     <span class="check">✓</span>

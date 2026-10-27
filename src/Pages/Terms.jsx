@@ -142,11 +142,11 @@ function Terms() {
 
           <section id="wallet">
             <h2>6. Mandi wallet: adding and withdrawing money</h2>
-            <p>Your Mandi wallet holds the money you use to buy produce and receives the money from your sales. The wallet always works in Indian rupees (INR).</p>
+            <p>Your Mandi wallet holds the money you use to buy produce and receives the money from your sales. The wallet always works in Indian rupees (INR) and Americal dollars (USD).</p>
             <h3>Adding money</h3>
             <ul>
               <li>You can add money by UPI (for example Google Pay, PhonePe or BHIM), debit card, credit card or bank transfer (NEFT, RTGS or IMPS), from accounts and cards in your own name only.</li>
-              <li>Each top-up must be at least ₹100 and not more than ₹2,00,000. We may set other daily or monthly limits.</li>
+              <li>Each top-up must be at least ₹1000/$10.51 and not more than ₹2,00,000/$2103.25. We may set other daily or monthly limits.</li>
               <li>UPI and card payments are added once your bank confirms them. Bank transfers are added only after the money reaches us and the UTR or reference number you give matches the transfer.</li>
               <li>Your card issuer may treat a credit card top-up as a cash advance or wallet load and charge you fees or interest. These are between you and your card issuer.</li>
               <li>We do not store your full card number or CVV. Card payments are handled by our payment partners.</li>
@@ -236,7 +236,7 @@ function Terms() {
 
           <section id="nominee">
             <h2>14. Nominee and transmission</h2>
-            <p>You may name a nominee to receive your wallet balance and holdings if you die. If your nominee is under 18, you must name a guardian. You can change your nominee at any time from your profile. When we are told of a death, we will hand over the balance and holdings to the nominee, or to the legal heirs where there is no valid nominee, after receiving the documents we reasonably need.</p>
+            <p>You may name a nominee to receive your wallet balance and holdings if you die. You can change your nominee at any time from your profile. When we are told of a death, we will hand over the balance and holdings to the nominee, or to the legal heirs where there is no valid nominee, after receiving the documents we reasonably need.</p>
           </section>
 
           <section id="closure">
