@@ -1,17 +1,23 @@
-import Footer from './Components/Footer'
-import Hero from './Components/Hero'
-import Navbar from './Components/Navbar'
-import Watchlist from './Components/Watchlist'
+import { Routes, Route } from "react-router-dom";
+import Hero from "./components/Hero";
+import Watchlist from "./components/Watchlist";
+import Login from "./Pages/Login";
 
-function App() {
+
+function Home() {
   return (
     <>
-      <Navbar />
       <Hero />
-      <Watchlist/>
-      <Footer/>
+      <Watchlist />
     </>
-  )
+  );
 }
 
-export default App
+export default function App() {
+  return (
+    <Routes>
+      <Route path="/" element={<Home />} />
+      <Route path="/login" element={<Login />} />
+    </Routes>
+  );
+}

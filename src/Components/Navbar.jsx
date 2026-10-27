@@ -10,7 +10,7 @@ function Navbar(){
                     <small>COMMODITY MARKET</small>
                 </span>
             </a>
-            <a href="" className="login-link">Login</a>
+            <Link to="/login" className="login-link">Login</Link>
            </header>
         </>
     )
