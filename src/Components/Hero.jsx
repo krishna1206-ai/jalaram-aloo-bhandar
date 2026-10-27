@@ -14,7 +14,8 @@ function Hero(){
                     Follow potato, garlic and onion prices in one place. Explore daily price movements and manage your market activity from a simple dashboard. 
                 </p>
                 <div className="hero-actions">
-                    <button className="btn-primary">Start exploring<span>↗</span> </button>
+                    <button className="btn-primary"
+  onClick={() => (window.location.hash = "market-preview")} >Start exploring<span>↗</span> </button>
                 </div>
                 <div className="trust-row">
                     <span class="check">✓</span>
