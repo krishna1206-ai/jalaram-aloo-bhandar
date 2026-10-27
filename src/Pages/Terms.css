@@ -1,0 +1,297 @@
+/* Terms page — every rule is scoped inside .t-page so it can't affect other pages */
+.t-page {
+  min-height: 100vh;
+  background: var(--cream, #f7f7ef);
+  color: var(--ink, #18251d);
+  font-family: "DM Sans", sans-serif;
+}
+.t-page * {
+  box-sizing: border-box;
+}
+.t-page a {
+  color: inherit;
+  text-decoration: none;
+}
+
+/* Top bar */
+.t-page .t-top {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  height: 72px;
+  padding: 0 clamp(20px, 6vw, 84px);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #fff;
+  border-bottom: 1px solid #e9ede5;
+}
+.t-page .t-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.t-page .brand-mark {
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  background: #073f2e;
+  border-radius: 13px;
+  color: #c8f36c;
+  font: 800 13px Manrope, sans-serif;
+}
+.t-page .t-brand-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.t-page .t-brand-text strong {
+  font: 800 14px Manrope, sans-serif;
+  color: #15251b;
+}
+.t-page .t-brand-text small {
+  font-size: 9px;
+  letter-spacing: 2px;
+  font-weight: 700;
+  color: #879388;
+}
+.t-page .t-print {
+  padding: 10px 16px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  color: #073f2e;
+  background: #fff;
+  border: 1px solid #dce5d7;
+  border-radius: 10px;
+  cursor: pointer;
+}
+.t-page .t-print:hover {
+  background: #f4f8f0;
+}
+
+/* Hero */
+.t-page .t-hero {
+  padding: 56px clamp(20px, 6vw, 84px) 40px;
+  background: linear-gradient(135deg, #04281d, #0b5139);
+  color: #fff;
+}
+.t-page .kicker {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 2px;
+  color: #c8f36c;
+}
+.t-page .t-hero h1 {
+  font: 800 clamp(30px, 5vw, 46px) / 1.1 Manrope, sans-serif;
+  letter-spacing: -1.5px;
+  margin: 12px 0 10px;
+  color: #fff;
+}
+.t-page .t-hero p {
+  margin: 0;
+  font-size: 13px;
+  color: #bcd3c4;
+}
+
+/* Two-column layout: contents + body */
+.t-page .t-layout {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 36px clamp(20px, 4vw, 40px) 60px;
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  gap: 36px;
+  align-items: start;
+}
+.t-page .t-toc {
+  position: sticky;
+  top: 92px;
+  max-height: calc(100vh - 110px);
+  overflow-y: auto;
+  padding: 20px;
+  background: #fff;
+  border: 1px solid #e5e9df;
+  border-radius: 16px;
+}
+.t-page .t-toc strong {
+  display: block;
+  font: 800 13px Manrope, sans-serif;
+  color: #073f2e;
+  margin-bottom: 10px;
+}
+.t-page .t-toc ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.t-page .t-toc a {
+  display: block;
+  padding: 6px 8px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #5d6c62;
+  border-radius: 8px;
+}
+.t-page .t-toc a:hover {
+  background: #f1f6ec;
+  color: #073f2e;
+}
+
+/* Body text */
+.t-page .t-body {
+  min-width: 0;
+  padding: 32px clamp(20px, 4vw, 44px);
+  background: #fff;
+  border: 1px solid #e5e9df;
+  border-radius: 18px;
+  font-size: 14px;
+  line-height: 1.8;
+  color: #3a4a40;
+}
+.t-page .t-body section {
+  scroll-margin-top: 90px;
+  padding-top: 8px;
+  margin-top: 18px;
+}
+.t-page .t-body h2 {
+  font: 800 19px Manrope, sans-serif;
+  letter-spacing: -0.4px;
+  color: #073f2e;
+  margin: 0 0 10px;
+}
+.t-page .t-body h3 {
+  font: 800 14px Manrope, sans-serif;
+  color: #073f2e;
+  margin: 18px 0 6px;
+}
+.t-page .t-body p {
+  margin: 0 0 12px;
+}
+.t-page .t-body ul {
+  margin: 0 0 12px;
+  padding-left: 20px;
+}
+.t-page .t-body li {
+  margin-bottom: 6px;
+}
+.t-page .t-body b {
+  color: #18251d;
+}
+
+/* Highlighted checklist box */
+.t-page .t-checklist {
+  padding: 22px 24px;
+  background: #f1f8ea;
+  border: 1px solid #d6e8c7;
+  border-radius: 14px;
+}
+.t-page .t-checklist h2 {
+  font-size: 17px;
+}
+.t-page .t-checklist ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.t-page .t-checklist li {
+  position: relative;
+  padding-left: 24px;
+}
+.t-page .t-checklist li::before {
+  content: "✓";
+  position: absolute;
+  left: 0;
+  font-weight: 800;
+  color: #6fa84c;
+}
+
+/* Contact list */
+.t-page .t-contact {
+  margin: 12px 0 14px;
+  display: grid;
+  gap: 10px;
+}
+.t-page .t-contact div {
+  padding: 12px 14px;
+  background: #fafbf7;
+  border: 1px solid #e5e9df;
+  border-radius: 10px;
+}
+.t-page .t-contact dt {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  color: #073f2e;
+}
+.t-page .t-contact dd {
+  margin: 2px 0 0;
+}
+
+.t-page .t-end {
+  margin-top: 28px !important;
+  padding-top: 18px;
+  border-top: 1px solid #e5e9df;
+  font-weight: 700;
+  color: #073f2e;
+}
+
+/* Footer */
+.t-page .t-foot {
+  padding: 22px clamp(20px, 6vw, 84px);
+  border-top: 1px solid #e4e9df;
+  background: #fafbf7;
+  font-size: 12px;
+  color: #879186;
+}
+.t-page .t-foot a {
+  font-weight: 700;
+  color: #073f2e;
+}
+
+/* Tablet / phone */
+@media (max-width: 860px) {
+  .t-page .t-layout {
+    grid-template-columns: 1fr;
+  }
+  .t-page .t-toc {
+    position: static;
+    max-height: none;
+  }
+}
+@media (max-width: 520px) {
+  .t-page .t-brand-text small {
+    display: none;
+  }
+  .t-page .t-print {
+    padding: 8px 12px;
+    font-size: 11px;
+  }
+}
+
+/* Print / Save PDF: only the text, no menus or colours */
+@media print {
+  .t-page .t-top,
+  .t-page .t-toc,
+  .t-page .t-foot {
+    display: none;
+  }
+  .t-page,
+  .t-page .t-hero {
+    background: #fff;
+    color: #000;
+  }
+  .t-page .t-hero h1,
+  .t-page .t-hero p {
+    color: #000;
+  }
+  .t-page .t-layout {
+    display: block;
+    padding: 0;
+  }
+  .t-page .t-body {
+    border: 0;
+    padding: 0;
+  }
+}

@@ -4,6 +4,7 @@ import Watchlist from "./Components/Watchlist";
 import Login from "./Pages/Login";
 import Navbar from "./Components/Navbar";
 import Register from "./Pages/Register";
+import Terms from "./Pages/Terms";
 
 function Home() {
   return (
@@ -22,6 +23,7 @@ export default function App() {
         <Route path="/" element={<Home />} />
         <Route path="/login" element={<Login />} />
          <Route path="/register" element={<Register />} />
+          <Route path="/terms" element={<Terms />} />
       </Routes>
 
     </>
