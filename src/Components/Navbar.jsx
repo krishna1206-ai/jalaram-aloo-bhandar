@@ -1,7 +1,7 @@
 import "./Navbar.css";
 import { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { getUser, logout, initialsOf } from "../Auth.js";
+import { getUser, logout, initialsOf } from "../auth.js";
 
 const USD_RATE = 95.27; // 1 USD = ₹95.27
 
