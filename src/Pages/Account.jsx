@@ -9,7 +9,6 @@ import phonepeIcon from "../assets/images/phonepe.svg";
 import bhimIcon from "../assets/images/bhim.svg";
 import "./Account.css";
 
-/* ---------- Demo data ---------- */
 const tabs = [
   { key: "overview", label: "Overview" },
   { key: "holdings", label: "My godown" },
