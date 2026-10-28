@@ -147,6 +147,7 @@ h1 span {
     gap: 12px;
     align-items: center;
     margin-top: 28px;
+    text-decoration:none;
 }
 .btn-primary {
     border: 1px solid var(--forest);
