@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom";
-import { getUser, logout, initialsOf } from "../auth";
+import { getUser, logout, initialsOf } from "../auth.js";
 import potatoImg from "../assets/images/potatoes.jpg";
 import garlicImg from "../assets/images/garlic.jpg";
 import onionImg from "../assets/images/onions.jpg";
