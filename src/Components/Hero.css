@@ -154,6 +154,7 @@ h1 span {
     background: var(--forest);
     color: #fff;
     box-shadow: 0 9px 22px #073f2e1c;
+    text-decoration:none
 }
 
 .btn-primary, .btn-secondary {
