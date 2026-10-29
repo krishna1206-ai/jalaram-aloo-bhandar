@@ -1,0 +1,171 @@
+/* =========================================================
+   Admin sign in — paste at the END of Admin.css
+   ========================================================= */
+.al {
+  --al-green: #073f2e;
+  --al-lime: #c9f26b;
+  --al-bg: #f5f3ec;
+  --al-ink: #14211c;
+  --al-muted: #66736d;
+  --al-line: #e1e6e2;
+  --al-down: #f23645;
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px 16px;
+  box-sizing: border-box;
+  background: var(--al-bg);
+  color: var(--al-ink);
+  font-family:
+    "DM Sans",
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    Roboto,
+    sans-serif;
+}
+.al * {
+  box-sizing: border-box;
+}
+
+.al-card {
+  width: 100%;
+  max-width: 420px;
+  display: grid;
+  gap: 8px;
+  padding: 32px 28px;
+  background: #fff;
+  border: 1px solid var(--al-line);
+  border-radius: 22px;
+  box-shadow: 0 20px 50px rgba(7, 63, 46, 0.08);
+}
+
+.al-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.al-brand .brand-mark {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  background: var(--al-green);
+  color: var(--al-lime);
+  font-weight: 800;
+}
+.al-brand strong {
+  display: block;
+  font-size: 15px;
+  line-height: 1.2;
+}
+.al-brand small {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: var(--al-muted);
+}
+
+.al h1 {
+  margin: 0;
+  font-family: inherit;
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: normal;
+}
+.al .muted {
+  margin: 0 0 10px;
+  color: var(--al-muted);
+  font-size: 14px;
+}
+
+.al label {
+  margin-top: 6px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.al input {
+  width: 100%;
+  font: inherit;
+  font-size: 15px;
+  padding: 11px 12px;
+  border: 1px solid var(--al-line);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--al-ink);
+}
+.al input:focus {
+  outline: none;
+  border-color: var(--al-green);
+  box-shadow: 0 0 0 3px rgba(7, 63, 46, 0.1);
+}
+
+.al-pass {
+  position: relative;
+}
+.al-pass input {
+  padding-right: 70px;
+}
+.al-pass button {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  transform: translateY(-50%);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--al-green);
+}
+.al-pass button:hover {
+  background: #f0f2ed;
+}
+
+.al-error {
+  margin: 4px 0 0;
+  color: var(--al-down);
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.al-submit {
+  margin-top: 12px;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 12px 16px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--al-green);
+  color: #fff;
+}
+.al-submit:hover {
+  filter: brightness(1.12);
+}
+
+.al-demo {
+  margin: 6px 0 0;
+  text-align: center;
+  font-size: 13px;
+  color: var(--al-muted);
+}
+.al-back {
+  justify-self: center;
+  margin-top: 4px;
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+  color: var(--al-green);
+}
+.al-back:hover {
+  text-decoration: underline;
+}
