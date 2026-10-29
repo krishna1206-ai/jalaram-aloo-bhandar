@@ -1,4 +1,6 @@
 import './Pricechart.css'
+import Money from "../Components/Money";
+import { useMoney } from "../CurrencyContext";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 
 const RANGES = [
@@ -29,8 +31,6 @@ function seededRandom(text) {
   };
 }
 
-const inr = (v) => "₹" + v.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const signedInr = (v) => (v > 0 ? "+" : v < 0 ? "-" : "") + inr(Math.abs(v));
 const pct = (v, d = 2) => {
   const r = Number(v.toFixed(d));
   return (r > 0 ? "+" : r < 0 ? "-" : "") + Math.abs(r).toFixed(d) + "%";
@@ -109,6 +109,11 @@ function candlesFor(daily, rangeId, seedText) {
 
 /* ---------- component ---------- */
 export default function PriceChart({ city, commodities, priceFor }) {
+  const { fmt, fmtShort } = useMoney();
+  const inr = (v) => fmt(v, 2);
+  const axis = (v) => fmtShort(v, 2); // single currency, fits inside the chart
+  const signedInr = (v) => (v > 0 ? "+" : v < 0 ? "-" : "") + fmt(Math.abs(v), 2);
+
   const [key, setKey] = useState(commodities[0].key);
   const [type, setType] = useState("candles");
   const [rangeId, setRangeId] = useState("3M");
@@ -233,7 +238,7 @@ export default function PriceChart({ city, commodities, priceFor }) {
         </div>
         <div className="pc-ltp">
           <strong>
-            <span className="m"><span className="m-main">{inr(last.c)}</span></span>
+            <Money value={last.c} decimals={2} />
           </strong>
           <span className={`chip ${dir}`}>
             {dir === "up" ? "▲" : "▼"} {signedInr(periodChange)} ({pct(periodPct)}) · {rangeId}
@@ -315,7 +320,7 @@ export default function PriceChart({ city, commodities, priceFor }) {
               <line className="grid" x1={left} x2={right} y1={t.y} y2={t.y} />
               {Math.abs(t.y - ltpY) > 14 && (
                 <text className="tick" dominantBaseline="middle" x={right + 8} y={t.y}>
-                  {inr(t.v)}
+                  {axis(t.v)}
                 </text>
               )}
             </g>
@@ -350,17 +355,17 @@ export default function PriceChart({ city, commodities, priceFor }) {
           )}
 
           <text textAnchor="middle" className="mark-label" x={clampX(xc(hiIdx))} y={y(candles[hiIdx].h) - 8}>
-            H {inr(candles[hiIdx].h)}
+            H {axis(candles[hiIdx].h)}
           </text>
           <text textAnchor="middle" className="mark-label" x={clampX(xc(loIdx))} y={y(candles[loIdx].l) + 14}>
-            L {inr(candles[loIdx].l)}
+            L {axis(candles[loIdx].l)}
           </text>
 
           <line className={`ltp-line ${dir}`} x1={left} x2={right} y1={ltpY} y2={ltpY} />
           <g className={`tag ${dir}`}>
             <rect rx="4" x={right + 2} y={ltpY - 10} width="66" height="20" />
             <text textAnchor="middle" dominantBaseline="middle" x={right + 35} y={ltpY}>
-              {inr(last.c)}
+              {axis(last.c)}
             </text>
           </g>
 

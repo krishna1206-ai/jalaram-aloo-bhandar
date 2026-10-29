@@ -25,7 +25,12 @@ function Navbar() {
 
       <div className="topbar-right">
         <CurrencySwitch />
-        {user ? <AccountMenu user={user} onLogout={handleLogout} /> : <Link to="/login" className="login-link">Login</Link>}
+
+        {user ? (
+          <AccountMenu user={user} onLogout={handleLogout} />
+        ) : (
+          <Link to="/login" className="login-link">Login</Link>
+        )}
       </div>
     </header>
   );

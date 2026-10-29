@@ -1,0 +1,8 @@
+/* Dollar value shown next to rupees when "₹ / $" is selected */
+.m-sub {
+  margin-left: 0.35em;
+  font-size: 0.78em;
+  font-weight: 500;
+  opacity: 0.65;
+  white-space: nowrap;
+}

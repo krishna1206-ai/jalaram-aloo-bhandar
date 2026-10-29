@@ -5,6 +5,9 @@ import garlicImg from "../assets/images/garlic.jpg";
 import onionImg from "../assets/images/onions.jpg";
 import "./Explore.css";
 import PriceChart from "./Pricechart.jsx";
+import Money from "../Components/Money";
+import CurrencySwitch from "../Components/CurrencySwitch";
+import { useMoney } from "../CurrencyContext";
 
 /* ---------- Demo data ---------- */
 const firstName = "Guest";
@@ -86,18 +89,6 @@ function priceFor(city, commodity) {
   };
 }
 
-const formatINR = (v, decimals = 0) =>
-  "₹" + v.toLocaleString("en-IN", { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
-
-// Same markup as her <app-money>: <span class="m"><span class="m-main">
-function Money({ value, decimals = 0 }) {
-  return (
-    <span className="m">
-      <span className="m-main">{formatINR(value, decimals)}</span>
-    </span>
-  );
-}
-
 const pct = (v) => (v >= 0 ? "+" : "") + v.toFixed(1) + "%";
 const perKg = (p) => p.price / p.commodity.kgPerBag;
 const weekChange = (p) => ((p.trend[6] - p.trend[0]) / p.trend[0]) * 100;
@@ -121,6 +112,7 @@ function quoteFor(price, bags) {
 
 /* ---------- Page ---------- */
 function Explore() {
+  const { fmt } = useMoney();
   const [cityName, setCityName] = useState("Ahmedabad");
   const [compareKey, setCompareKey] = useState("potato");
   const [sortAsc, setSortAsc] = useState(true);
@@ -225,7 +217,8 @@ function Explore() {
             <small>COMMODITY MARKET</small>
           </span>
         </Link>
-        <div className="cp-user">
+        <div className="cp-user" style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <CurrencySwitch />
           <Link className="cp-link" to="/account">My account</Link>
         </div>
       </header>
@@ -277,7 +270,7 @@ function Explore() {
             Wallet available: <strong><Money value={wallet} decimals={2} /></strong>
           </span>
         </div>
-        <p className="muted cp-note">Updated {updatedAt} · Illustrative · Prices in INR</p>
+        <p className="muted cp-note">Updated {updatedAt} · Illustrative</p>
 
         {/* TODAY'S RATES IN THE SELECTED CITY */}
         <section className="cp-grid">
@@ -522,7 +515,7 @@ function Explore() {
 
               <div className="inv-actions">
                 <button type="button" className="btn-solid" onClick={confirmInvest} disabled={shortfall > 0}>
-                  Pay {formatINR(quote.total, 2)} &amp; invest
+                  Pay {fmt(quote.total, 2)} &amp; invest
                 </button>
                 <button type="button" className="btn-outline" onClick={closeInvest}>Cancel</button>
               </div>

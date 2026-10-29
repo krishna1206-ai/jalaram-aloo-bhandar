@@ -8,6 +8,9 @@ import gpayIcon from "../assets/images/googlepay.svg";
 import phonepeIcon from "../assets/images/phonepe.svg";
 import bhimIcon from "../assets/images/bhim.svg";
 import "./Account.css";
+import Money from "../Components/Money";
+import CurrencySwitch from "../Components/CurrencySwitch";
+import { useMoney } from "../CurrencyContext";
 
 const tabs = [
   { key: "overview", label: "Overview" },
@@ -58,19 +61,6 @@ const quickAmounts = [500, 1000, 5000, 10000];
 const inr = (v, decimals = 0) =>
   "₹" + Math.abs(v).toLocaleString("en-IN", { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
 
-// Same markup as her <app-money>
-function Money({ value, decimals = 0, signed = false, hide = false }) {
-  let text;
-  if (hide) text = "₹ ••••";
-  else if (signed) text = (value >= 0 ? "+" : "−") + inr(value, decimals);
-  else text = (value < 0 ? "−" : "") + inr(value, decimals);
-  return (
-    <span className="m">
-      <span className="m-main">{text}</span>
-    </span>
-  );
-}
-
 const pct = (v) => (v >= 0 ? "+" : "") + v.toFixed(1) + "%";
 const value = (h) => h.bags * h.ltp;
 const cost = (h) => h.bags * h.avgCost;
@@ -106,6 +96,7 @@ function Account() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const authUser = getUser();
+  const { fmt } = useMoney();
 
   const [hidden, setHidden] = useState(false);
   const [hideGodown, setHideGodown] = useState(false);
@@ -321,6 +312,7 @@ function Account() {
           </span>
         </Link>
         <div className="acc-user">
+          <CurrencySwitch />
           <div className="acc-hello">
             <small>Welcome back</small>
             <strong>{firstName}</strong>
@@ -554,7 +546,7 @@ function Account() {
               </>
             ) : (
               <p className="muted small">
-                To: {user.bank} · Withdrawable now: <strong>{inr(available, 2)}</strong>. Money reaches your bank in 1
+                To: {user.bank} · Withdrawable now: <strong>{fmt(available, 2)}</strong>. Money reaches your bank in 1
                 business day.
               </p>
             )}
@@ -593,7 +585,7 @@ function Account() {
                   <span className="kicker">TODAY'S MANDI RATES</span>
                   <h2>What your bags are worth now</h2>
                 </div>
-                <span className="muted small">Illustrative · Prices in INR</span>
+                <span className="muted small">Illustrative</span>
               </div>
               <div className="rate-grid">
                 {holdings.map((h) => (
