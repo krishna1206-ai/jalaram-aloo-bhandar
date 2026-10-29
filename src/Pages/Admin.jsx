@@ -3,7 +3,8 @@ import { Link, useNavigate } from "react-router-dom";
 import potatoImg from "../assets/images/potatoes.jpg";
 import onionImg from "../assets/images/onions.jpg";
 import garlicImg from "../assets/images/garlic.jpg";
-import './Adminlogin.css'
+import "./Admin.css";
+import "./AdminLogin.css";
 const STORAGE_KEY = "jab-admin-v2"; 
 const AUTH_KEY = "jab-admin-auth";
 
