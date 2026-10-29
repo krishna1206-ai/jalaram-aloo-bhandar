@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom";
-import { getUser, logout, initialsOf } from "../auth.js";
+import { Link, Navigate, useSearchParams } from "react-router-dom";
+import { getUser } from "../auth.js";
 import potatoImg from "../assets/images/potatoes.jpg";
 import garlicImg from "../assets/images/garlic.jpg";
 import onionImg from "../assets/images/onions.jpg";
@@ -9,7 +9,7 @@ import phonepeIcon from "../assets/images/phonepe.svg";
 import bhimIcon from "../assets/images/bhim.svg";
 import "./Account.css";
 import Money from "../Components/Money";
-import CurrencySwitch from "../Components/CurrencySwitch";
+import Navbar from "../Components/Navbar";
 import { useMoney } from "../CurrencyContext";
 
 const tabs = [
@@ -93,7 +93,6 @@ function cardBrandOf(num) {
 
 /* ---------- Page ---------- */
 function Account() {
-  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const authUser = getUser();
   const { fmt } = useMoney();
@@ -130,8 +129,6 @@ function Account() {
     memberSince: "October 2026",
     lastLogin: new Date().toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }),
   };
-  const firstName = user.name.split(" ")[0];
-  const initials = initialsOf(user.name);
 
   /* Tabs (kept in the URL: /account?tab=holdings) */
   const tabParam = searchParams.get("tab");
@@ -230,11 +227,6 @@ function Account() {
     closePanel();
   };
 
-  const handleLogout = () => {
-    logout();
-    navigate("/");
-  };
-
   const cardForm = (
     <>
       <label htmlFor="cardno">Card number</label>
@@ -302,25 +294,11 @@ function Account() {
   );
 
   return (
-    <div className="acc-page">
-      <header className="acc-top">
-        <Link className="acc-brand" to="/">
-          <span className="brand-mark">JA</span>
-          <span className="acc-brand-text">
-            <strong>Jalaram Aloo Bhandar</strong>
-            <small>COMMODITY MARKET</small>
-          </span>
-        </Link>
-        <div className="acc-user">
-          <CurrencySwitch />
-          <div className="acc-hello">
-            <small>Welcome back</small>
-            <strong>{firstName}</strong>
-          </div>
-          <span className="avatar">{initials}</span>
-          <button type="button" className="logout" onClick={handleLogout}>Logout</button>
-        </div>
-      </header>
+    <>
+  
+    
+      <Navbar />
+      <div className="acc-page">
 
       <main className="acc-main">
         {toast && (
@@ -748,6 +726,7 @@ function Account() {
         </p>
       </main>
     </div>
+      </>
   );
 }
 

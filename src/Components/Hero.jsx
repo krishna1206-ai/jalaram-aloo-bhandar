@@ -19,7 +19,7 @@ function Hero(){
   </Link>
                 </div>
                 <div className="trust-row">
-                    <span class="check">✓</span>
+                    <span className="check">✓</span>
                     <span>Transparent prices</span>
                     <i></i>
                     <span>Simple wallet</span>

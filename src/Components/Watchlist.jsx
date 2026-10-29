@@ -2,7 +2,7 @@ import potato from "../assets/images/potatoes.jpg";
 import garlic from "../assets/images/garlic.jpg";
 import onion from "../assets/images/onions.jpg";
 import "./Watchlist.css";
-
+   import Money from "./Money";
 const commodities = [
   { name: "Potatoes", image: potato, unit: "Per 20 kg bag", price: 420, change: 2.4 },
   { name: "Garlic", image: garlic, unit: "Per 5 kg bag", price: 680, change: -1.2 },
@@ -32,9 +32,7 @@ function Watchlist() {
               </div>
               <div className="commodity-price">
                 <strong>
-                  <span className="m">
-                    <span className="m-main">₹{item.price}</span>
-                  </span>
+                     <Money value={item.price} />
                 </strong>
                 <small className={up ? "up" : "down"}>
                   {up ? "↗︎" : "↘︎"} {Math.abs(item.change)}% today
