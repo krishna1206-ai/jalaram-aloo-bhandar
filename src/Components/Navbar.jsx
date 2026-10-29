@@ -1,9 +1,9 @@
 import "./Navbar.css";
-import { useEffect, useRef, useState } from "react";
-import { Link, useLocation, useNavigate } from "react-router-dom";
-import { getUser, logout, initialsOf } from "../auth.js";
-
-const USD_RATE = 95.27; // 1 USD = ₹95.27
+import { useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { getUser, logout } from "../auth.js";
+import AccountMenu from "./AccountMenu";
+import { USD_RATE } from "./Money";
 
 const currencyOptions = [
   { value: "inr", symbol: "₹", label: " INR" },
@@ -13,28 +13,8 @@ const currencyOptions = [
 
 function Navbar() {
   const navigate = useNavigate();
-  const location = useLocation();
-  const [menuOpen, setMenuOpen] = useState(false);
   const [currency, setCurrency] = useState("both");
-  const menuRef = useRef(null);
-
   const user = getUser();
-  const initials = initialsOf(user?.name);
-
-  // close menu when page changes
-  useEffect(() => {
-    setMenuOpen(false);
-  }, [location.pathname]);
-
-  // close menu when clicking outside
-  useEffect(() => {
-    if (!menuOpen) return;
-    const onClick = (e) => {
-      if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false);
-    };
-    document.addEventListener("mousedown", onClick);
-    return () => document.removeEventListener("mousedown", onClick);
-  }, [menuOpen]);
 
   const handleLogout = () => {
     logout();
@@ -69,36 +49,7 @@ function Navbar() {
         </div>
 
         {user ? (
-          <div className="account-menu" ref={menuRef}>
-            <button type="button" className="account-trigger" onClick={() => setMenuOpen(!menuOpen)}>
-              <span className="avatar-sm">{initials}</span>
-              <span className="acc-name">Account</span>
-              <i className={`caret ${menuOpen ? "up" : ""}`}></i>
-            </button>
-
-            {menuOpen && (
-              <div className="account-dropdown">
-                <div className="dd-head">
-                  <span className="avatar-sm lg">{initials}</span>
-                  <div>
-                    <strong>{user.name}</strong>
-                    <small>{user.clientId}</small>
-                  </div>
-                </div>
-
-                <div className="dd-wallet">
-                  <small>Wallet balance</small>
-                  <strong>₹{user.balance.toLocaleString("en-IN", { minimumFractionDigits: 2 })}</strong>
-                </div>
-
-                <Link to="/account">My account</Link>
-                <Link to="/account?tab=holdings">My godown</Link>
-                <Link to="/account?tab=transactions">Transactions</Link>
-                <Link to="/account?tab=profile">Profile &amp; security</Link>
-                <button type="button" className="dd-logout" onClick={handleLogout}>Logout</button>
-              </div>
-            )}
-          </div>
+          <AccountMenu user={user} currency={currency} onLogout={handleLogout} />
         ) : (
           <Link to="/login" className="login-link">Login</Link>
         )}

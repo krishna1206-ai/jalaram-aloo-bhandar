@@ -4,6 +4,7 @@ import potatoImg from "../assets/images/potatoes.jpg";
 import garlicImg from "../assets/images/garlic.jpg";
 import onionImg from "../assets/images/onions.jpg";
 import "./Explore.css";
+import PriceChart from "./Pricechart.jsx";
 
 /* ---------- Demo data ---------- */
 const firstName = "Guest";
@@ -315,6 +316,9 @@ function Explore() {
             </article>
           ))}
         </section>
+
+        {/* PRICE CHART */}
+        <PriceChart city={city} commodities={commodities} priceFor={priceFor} />
 
         {/* COMPARE ACROSS CITIES */}
         <section className="cp-block">

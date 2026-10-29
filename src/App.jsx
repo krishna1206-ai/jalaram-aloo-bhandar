@@ -7,6 +7,7 @@ import Register from "./Pages/Register";
 import Terms from "./Pages/Terms";
 import Explore from "./Pages/Explore";
 import Account from "./Pages/Account";
+import Admin from "./Pages/Admin";
 
 function Home() {
   return (
@@ -29,6 +30,7 @@ export default function App() {
           <Route path="/explore" element={<Explore />} />
           
           <Route path="/account" element={<Account />} />
+           <Route path="/admin" element={<Admin />} />
           
       </Routes>
 

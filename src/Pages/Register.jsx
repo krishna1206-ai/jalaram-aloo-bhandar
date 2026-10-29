@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import "./Register.css";
+import MapPicker from "./MapPicker";
 
 /* ---------- Data ---------- */
 const steps = ["Verify", "Profile", "Address", "Docs", "Payout Account", "Nominee", "Security"];
@@ -133,6 +134,9 @@ function Register() {
 
   const [message, setMessage] = useState("");
 
+  const [showMap, setShowMap] = useState(false);
+  const [pickedLocation, setPickedLocation] = useState(null); // { lat, lng }
+
   /* Form field helpers */
   const set = (name, value) => setForm((f) => ({ ...f, [name]: value }));
   const bind = (name) => ({ value: form[name], onChange: (e) => set(name, e.target.value) });
@@ -190,6 +194,18 @@ function Register() {
       setBankBusy(false);
       setBankVerified(true);
     }, 1200);
+  };
+
+  /* Map picker: fill the address fields from the chosen point */
+  const onMapPick = (p) => {
+    setForm((f) => ({
+      ...f,
+      address: p.address || f.address,
+      city: p.city || f.city,
+      pincode: p.pincode || f.pincode,
+      state: states.includes(p.state) ? p.state : f.state,
+    }));
+    setPickedLocation({ lat: p.lat, lng: p.lng });
   };
 
   /* Submit */
@@ -409,6 +425,15 @@ function Register() {
 
               <label htmlFor="address">Address</label>
               <input id="address" type="text" autoComplete="street-address" placeholder="House no., street, area" {...bind("address")} />
+              <button type="button" className="map-btn" onClick={() => setShowMap(true)}>
+                📍 Pick on map
+              </button>
+              {pickedLocation && (
+                <span className="map-picked">
+                  ✓ Location picked ({pickedLocation.lat.toFixed(5)}, {pickedLocation.lng.toFixed(5)}). Please check the
+                  details below and add your house number.
+                </span>
+              )}
 
               <div className="row">
                 <div>
@@ -673,6 +698,8 @@ function Register() {
           </p>
         </form>
       </div>
+
+      <MapPicker open={showMap} onClose={() => setShowMap(false)} onPick={onMapPick} />
     </div>
   );
 }
