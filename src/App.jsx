@@ -8,6 +8,7 @@ import Terms from "./Pages/Terms";
 import Explore from "./Pages/Explore";
 import Account from "./Pages/Account";
 import Admin from "./Pages/Admin";
+import AdminLogin from "./Pages/AdminLogin";
 
 function Home() {
   return (
@@ -30,7 +31,8 @@ export default function App() {
           <Route path="/explore" element={<Explore />} />
           
           <Route path="/account" element={<Account />} />
-           <Route path="/admin" element={<Admin />} />
+          <Route path="/admin/login" element={<AdminLogin />} />
+<Route path="/admin" element={<Admin />} />
           
       </Routes>
 

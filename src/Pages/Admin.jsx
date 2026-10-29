@@ -1,23 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, Navigate, useNavigate } from "react-router-dom";
 import potatoImg from "../assets/images/potatoes.jpg";
 import onionImg from "../assets/images/onions.jpg";
 import garlicImg from "../assets/images/garlic.jpg";
 import "./Admin.css";
-import "./AdminLogin.css";
-const STORAGE_KEY = "jab-admin-v2"; 
-const AUTH_KEY = "jab-admin-auth";
+import { isAdminLoggedIn, adminLogout } from "./AdminLogin.jsx";
 
-// Demo login only. Anyone can read this in the browser, so replace it with a real backend check before going live.
-const DEMO_ADMIN = { username: "admin", password: "admin@123" };
+/* =========================================================
+   Admin panel (React version of <app-admin>)
+   Demo data, saved in this browser (localStorage) only.
+   ========================================================= */
 
-const isAdminLoggedIn = () => {
-  try {
-    return sessionStorage.getItem(AUTH_KEY) === "1";
-  } catch {
-    return false;
-  }
-};
+const STORAGE_KEY = "jab-admin-v2"; // v2: rates now have low, high and arrivals
 
 /* ---------- Demo data ---------- */
 const PRODUCTS = [
@@ -172,125 +166,9 @@ const SECTIONS = [
 ];
 
 /* =========================================================
-   Page: login first, then the panel
+   Page
    ========================================================= */
 function Admin() {
-  const [loggedIn, setLoggedIn] = useState(isAdminLoggedIn);
-
-  const login = () => {
-    try {
-      sessionStorage.setItem(AUTH_KEY, "1");
-    } catch {
-      /* ignore */
-    }
-    setLoggedIn(true);
-  };
-
-  const logout = () => {
-    try {
-      sessionStorage.removeItem(AUTH_KEY);
-    } catch {
-      /* ignore */
-    }
-    setLoggedIn(false);
-  };
-
-  return loggedIn ? <AdminPanel onLogout={logout} /> : <AdminLogin onLogin={login} />;
-}
-
-/* =========================================================
-   Admin sign in (React version of her login page)
-   ========================================================= */
-function AdminLogin({ onLogin }) {
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
-  const [showPass, setShowPass] = useState(false);
-  const [error, setError] = useState("");
-
-  const submit = (e) => {
-    e.preventDefault();
-    if (!username.trim() || !password) {
-      setError("Enter your username and password.");
-      return;
-    }
-    if (username.trim().toLowerCase() !== DEMO_ADMIN.username || password !== DEMO_ADMIN.password) {
-      setError("Wrong username or password.");
-      return;
-    }
-    setError("");
-    onLogin();
-  };
-
-  return (
-    <main className="al">
-      <form className="al-card" noValidate onSubmit={submit}>
-        <div className="al-brand">
-          <span className="brand-mark">JA</span>
-          <div>
-            <strong>Jalaram Aloo Bhandar</strong>
-            <small>ADMIN PANEL</small>
-          </div>
-        </div>
-
-        <h1>Admin sign in</h1>
-        <p className="muted">For staff who manage users, wallet requests and mandi rates.</p>
-
-        <label htmlFor="au">Username</label>
-        <input
-          id="au"
-          name="username"
-          type="text"
-          autoComplete="username"
-          autoCapitalize="off"
-          spellCheck="false"
-          required
-          value={username}
-          onChange={(e) => {
-            setUsername(e.target.value);
-            setError("");
-          }}
-        />
-
-        <label htmlFor="ap">Password</label>
-        <div className="al-pass">
-          <input
-            id="ap"
-            name="password"
-            type={showPass ? "text" : "password"}
-            autoComplete="current-password"
-            required
-            value={password}
-            onChange={(e) => {
-              setPassword(e.target.value);
-              setError("");
-            }}
-          />
-          <button type="button" onClick={() => setShowPass((v) => !v)}>
-            {showPass ? "Hide" : "Show"}
-          </button>
-        </div>
-
-        {error && (
-          <p className="al-error" role="alert">
-            {error}
-          </p>
-        )}
-
-        <button type="submit" className="al-submit">Sign in</button>
-
-        <p className="al-demo">
-          Demo login: <b>admin</b> / <b>admin@123</b>
-        </p>
-        <Link to="/" className="al-back">← Back to the app</Link>
-      </form>
-    </main>
-  );
-}
-
-/* =========================================================
-   Admin panel
-   ========================================================= */
-function AdminPanel({ onLogout }) {
   const navigate = useNavigate();
   const [data, setData] = useState(loadData);
   const [section, setSection] = useState("dashboard");
@@ -364,12 +242,15 @@ function AdminPanel({ onLogout }) {
   };
 
   const logout = () => {
-    onLogout(); // back to the sign-in screen
-    navigate("/admin");
+    adminLogout();
+    navigate("/admin/login", { replace: true });
   };
 
   const counts = { users: kycPending.length, wallet: pendingRequests.length };
   const title = SECTIONS.find((s) => s.key === section).label;
+
+  // Not signed in → go to the admin sign-in page
+  if (!isAdminLoggedIn()) return <Navigate to="/admin/login" replace />;
 
   return (
     <div className="ad">
