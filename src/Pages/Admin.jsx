@@ -10,7 +10,7 @@ import "./Admin.css";
    Demo data, saved in this browser (localStorage) only.
    ========================================================= */
 
-const STORAGE_KEY = "jab-admin-v1";
+const STORAGE_KEY = "jab-admin-v2"; // v2: rates now have low, high and arrivals
 
 /* ---------- Demo data ---------- */
 const PRODUCTS = [
@@ -38,6 +38,27 @@ const CITIES = [
   ["Hyderabad", "Telangana", "Bowenpally Market", 1.12],
   ["Chennai", "Tamil Nadu", "Koyambedu Market", 1.08],
 ].map(([name, state, mandi, f]) => ({ name, state, mandi, f }));
+
+// Potato rates from the live site: [today, % vs yesterday, low, high, arrivals]
+const POTATO_RATES = {
+  Ahmedabad: [389, -1.8, 357, 426, 3092],
+  Rajkot: [400, 0.0, 372, 439, 1350],
+  Surat: [416, 1.7, 377, 447, 1686],
+  Deesa: [332, -2.1, 301, 355, 1678],
+  Mumbai: [458, -0.7, 428, 493, 4382],
+  Pune: [435, 1.4, 394, 477, 3556],
+  Nashik: [462, 2.2, 434, 502, 3518],
+  Delhi: [412, -0.7, 376, 440, 4296],
+  Agra: [344, 1.2, 320, 363, 2813],
+  Lucknow: [396, 1.5, 362, 432, 3839],
+  Indore: [391, -1.3, 359, 429, 3100],
+  Mandsaur: [392, 0.0, 362, 421, 2302],
+  Jaipur: [437, 0.5, 407, 474, 2164],
+  Kolkata: [363, -0.5, 329, 391, 2039],
+  Bengaluru: [480, 1.3, 439, 521, 1880],
+  Hyderabad: [457, -0.7, 424, 499, 3723],
+  Chennai: [447, 2.1, 407, 485, 2190],
+};
 
 // Time helper: days ago + "HH:MM" -> timestamp
 function at(daysAgo, hhmm) {
@@ -84,15 +105,23 @@ function seedData() {
     { id: "OR55060", userId: "JAB-2026-004845", side: "Buy", item: "garlic", city: "Delhi", bags: 12, rate: 752, time: at(7, "10:47") },
   ];
 
-  // Mandi rates per city: today + yesterday (₹ per bag)
+  // Mandi rates per city (₹ per bag): today, yesterday, low, high, arrivals
   let seed = 7;
   const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
   const rates = {};
   PRODUCTS.forEach((p) => {
     rates[p.key] = CITIES.map((c) => {
+      const fixed = p.key === "potato" && POTATO_RATES[c.name];
+      if (fixed) {
+        const [today, change, low, high, arrivals] = fixed;
+        return { city: c.name, today, yesterday: today / (1 + change / 100), low, high, arrivals };
+      }
       const today = Math.round(p.base * c.f * (0.96 + rnd() * 0.08));
       const yesterday = Math.round(today / (1 + (rnd() - 0.5) * 0.05));
-      return { city: c.name, today, yesterday };
+      const low = Math.round(today * (0.9 + rnd() * 0.03));
+      const high = Math.round(today * (1.06 + rnd() * 0.04));
+      const arrivals = Math.round(1300 + rnd() * 3100);
+      return { city: c.name, today, yesterday, low, high, arrivals };
     });
   });
 
@@ -199,15 +228,6 @@ function Admin() {
     );
   };
 
-  const setRate = (productKey, city, value) => {
-    const n = Math.round(Number(value));
-    if (!n || n < 1) return;
-    setData((d) => ({
-      ...d,
-      rates: { ...d.rates, [productKey]: d.rates[productKey].map((r) => (r.city === city ? { ...r, today: n } : r)) },
-    }));
-  };
-
   const resetDemo = () => {
     if (!confirmReset) {
       setConfirmReset(true);
@@ -300,7 +320,7 @@ function Admin() {
           )}
           {section === "users" && <Users users={users} updateUser={updateUser} />}
           {section === "wallet" && <WalletRequests requests={walletRequests} userById={userById} decide={decideRequest} />}
-          {section === "rates" && <Rates rates={rates} setRate={setRate} />}
+          {section === "rates" && <Rates rates={rates} />}
           {section === "orders" && <Orders orders={orders} userById={userById} productByKey={productByKey} />}
 
           <p className="disclaimer">
@@ -609,65 +629,52 @@ function WalletRequests({ requests, userById, decide }) {
 /* =========================================================
    Mandi rates
    ========================================================= */
-function Rates({ rates, setRate }) {
+function Rates({ rates }) {
   const [productKey, setProductKey] = useState("potato");
-  const product = PRODUCTS.find((p) => p.key === productKey);
   const list = rates[productKey];
   const cityInfo = (name) => CITIES.find((c) => c.name === name);
 
   return (
     <section className="card">
-      <div className="card-head wrap">
-        <div>
-          <h2>Today's mandi rates</h2>
-          <small className="muted">₹ per {product.pack}. Edit a rate and press Enter or click outside to save.</small>
-        </div>
-        <div className="seg" role="group" aria-label="Product">
+      <div className="toolbar">
+        <div className="pills">
           {PRODUCTS.map((p) => (
-            <button key={p.key} type="button" className={productKey === p.key ? "on" : ""} aria-pressed={productKey === p.key} onClick={() => setProductKey(p.key)}>
+            <button key={p.key} type="button" className={productKey === p.key ? "on" : ""} onClick={() => setProductKey(p.key)}>
               {p.name}
             </button>
           ))}
         </div>
       </div>
+      <p className="muted">Today's rates as users see them on the Prices page. Rates come from the live price feed.</p>
 
       <div className="table-wrap">
         <table>
           <thead>
             <tr>
               <th>City</th>
-              <th>Mandi</th>
-              <th className="num">Yesterday</th>
-              <th className="num">Today</th>
-              <th className="num">Change</th>
+              <th className="num">Today's rate</th>
+              <th className="num">vs yesterday</th>
+              <th className="num">Low – High</th>
+              <th className="num">Arrivals (bags)</th>
             </tr>
           </thead>
           <tbody>
             {list.map((r) => {
-              const c = cityInfo(r.city);
               const change = ((r.today - r.yesterday) / r.yesterday) * 100;
               return (
                 <tr key={`${productKey}-${r.city}`}>
                   <td>
                     <strong>{r.city}</strong>
-                    <small className="block">{c?.state}</small>
-                  </td>
-                  <td className="muted">{c?.mandi}</td>
-                  <td className="num">{inr(r.yesterday)}</td>
-                  <td className="num">
-                    <input
-                      className="rate-input"
-                      type="number"
-                      min="1"
-                      defaultValue={r.today}
-                      aria-label={`${product.name} rate in ${r.city}`}
-                      onBlur={(e) => setRate(productKey, r.city, e.target.value)}
-                      onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
-                    />
+                    <small className="block">{cityInfo(r.city)?.mandi}</small>
                   </td>
                   <td className="num">
-                    <span className={change >= 0 ? "pos" : "neg"}>{pct(change)}</span>
+                    <strong>{inr(r.today)}</strong>
                   </td>
+                  <td className={`num ${change >= 0 ? "pos" : "neg"}`}>{pct(change)}</td>
+                  <td className="num">
+                    {inr(r.low)} – {inr(r.high)}
+                  </td>
+                  <td className="num">{r.arrivals.toLocaleString("en-IN")}</td>
                 </tr>
               );
             })}
