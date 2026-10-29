@@ -236,7 +236,7 @@ function Terms() {
 
           <section id="nominee">
             <h2>14. Nominee and transmission</h2>
-            <p>You may name a nominee to receive your wallet balance and holdings if you die. You can change your nominee at any time from your profile. When we are told of a death, we will hand over the balance and holdings to the nominee, or to the legal heirs where there is no valid nominee, after receiving the documents we reasonably need.</p>
+            <p>You may name a nominee to receive your wallet balance and holdings if you die. You can change your nominee at any time from your profile. When we are told of a death, we will hand over the balance and holdings to the nominee, or to the legal heirs where there is no valid nominee, after receiving the documents we reasonably need.Nominee's age must be over 18.</p>
           </section>
 
           <section id="closure">
