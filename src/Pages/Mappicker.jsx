@@ -1,5 +1,5 @@
 import "leaflet/dist/leaflet.css";
-import "./MapPicker.css";
+import "./Mappicker.css";
 import { useEffect, useRef, useState } from "react";
 import L from "leaflet";
 import markerIcon from "leaflet/dist/images/marker-icon.png";

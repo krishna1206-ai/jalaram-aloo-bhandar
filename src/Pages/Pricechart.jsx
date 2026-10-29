@@ -1,15 +1,6 @@
 import './Pricechart.css'
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 
-/*
-  Price chart for the Explore page (candles / line + volume).
-  Uses the page's own data: pass the selected city, the commodities list
-  and the priceFor() function. The last 7 days of the chart are exactly the
-  7-day trend shown on each card, and the last close is today's card price.
-
-  <PriceChart city={city} commodities={commodities} priceFor={priceFor} />
-*/
-
 const RANGES = [
   { id: "24H", title: "the last 24 hours", unit: "hour" },
   { id: "1W", title: "the last week", unit: "day" },

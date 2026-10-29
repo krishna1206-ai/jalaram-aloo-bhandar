@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import "./Register.css";
-import MapPicker from "./MapPicker";
+import MapPicker from "./Mappicker";
 
 /* ---------- Data ---------- */
 const steps = ["Verify", "Profile", "Address", "Docs", "Payout Account", "Nominee", "Security"];
