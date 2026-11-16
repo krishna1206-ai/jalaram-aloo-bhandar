@@ -1,99 +1,23 @@
-import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
-import potatoImg from "../assets/images/potatoes.jpg";
-import garlicImg from "../assets/images/garlic.jpg";
-import onionImg from "../assets/images/onions.jpg";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import "./Explore.css";
 import PriceChart from "./Pricechart.jsx";
 import Money from "../Components/Money";
 import CurrencySwitch from "../Components/CurrencySwitch";
 import { useMoney } from "../CurrencyContext";
+import { PRODUCT_IMAGES, api } from "../api.js";
+import { getUser, isLoggedIn, updateUser } from "../auth.js";
 
-/* ---------- Demo data ---------- */
-const firstName = "Guest";
-const DEMO_PIN = "123456";
-const START_WALLET = 25000;
-const MAX_BAGS = 500;
 const quickBags = [1, 5, 10, 25];
-
-// Charges (demo values)
-const BROKERAGE_RATE = 0.005; // 0.5% of order value
-const PLATFORM_FEE = 10; // ₹ per order
-const GST_RATE = 0.18; // 18% GST on charges
-
-const commodities = [
-  { key: "potato", name: "Potato", pack: "20 kg bag", kgPerBag: 20, base: 420, image: potatoImg },
-  { key: "onion", name: "Onion", pack: "20 kg bag", kgPerBag: 20, base: 560, image: onionImg },
-  { key: "garlic", name: "Garlic", pack: "5 kg bag", kgPerBag: 5, base: 680, image: garlicImg },
-];
-
-const cities = [
-  { name: "Ahmedabad", state: "Gujarat", mandi: "Jamalpur APMC" },
-  { name: "Rajkot", state: "Gujarat", mandi: "Rajkot APMC" },
-  { name: "Surat", state: "Gujarat", mandi: "Sardar Market APMC" },
-  { name: "Vadodara", state: "Gujarat", mandi: "Vadodara APMC" },
-  { name: "Mumbai", state: "Maharashtra", mandi: "Vashi APMC" },
-  { name: "Pune", state: "Maharashtra", mandi: "Gultekdi Market Yard" },
-  { name: "Nashik", state: "Maharashtra", mandi: "Lasalgaon APMC" },
-  { name: "Indore", state: "Madhya Pradesh", mandi: "Devi Ahilya Bai Holkar Mandi" },
-  { name: "Delhi", state: "Delhi", mandi: "Azadpur Mandi" },
-  { name: "Agra", state: "Uttar Pradesh", mandi: "Agra Mandi" },
-  { name: "Jaipur", state: "Rajasthan", mandi: "Muhana Mandi" },
-  { name: "Kolkata", state: "West Bengal", mandi: "Posta Bazar" },
-  { name: "Bengaluru", state: "Karnataka", mandi: "Yeshwanthpur APMC" },
-  { name: "Chennai", state: "Tamil Nadu", mandi: "Koyambedu Market" },
-];
-
-const states = [...new Set(cities.map((c) => c.state))];
-const citiesIn = (state) => cities.filter((c) => c.state === state);
 const popular = ["Ahmedabad", "Mumbai", "Delhi", "Indore", "Rajkot"];
 
 /* ---------- Helpers ---------- */
-
-// Same city + commodity always gives the same "random" numbers
-function seededRandom(text) {
-  let h = 2166136261;
-  for (let i = 0; i < text.length; i++) {
-    h ^= text.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return () => {
-    h += 0x6d2b79f5;
-    let t = h;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-function priceFor(city, commodity) {
-  const r = seededRandom(city.name + commodity.key);
-  const price = Math.round((commodity.base * (0.88 + r() * 0.24)) / 5) * 5;
-  const change = Math.round((r() * 8 - 3) * 10) / 10;
-
-  // 7-day trend ending at today's price
-  const trend = [price];
-  for (let i = 0; i < 6; i++) {
-    trend.unshift(Math.round(trend[0] * (1 + (r() - 0.5) * 0.06)));
-  }
-
-  return {
-    city,
-    commodity,
-    price,
-    change,
-    trend,
-    min: Math.round((price * (0.9 + r() * 0.04)) / 5) * 5,
-    max: Math.round((price * (1.05 + r() * 0.05)) / 5) * 5,
-    arrivals: Math.round(500 + r() * 4500),
-  };
-}
-
 const pct = (v) => (v >= 0 ? "+" : "") + v.toFixed(1) + "%";
 const perKg = (p) => p.price / p.commodity.kgPerBag;
-const weekChange = (p) => ((p.trend[6] - p.trend[0]) / p.trend[0]) * 100;
+const weekChange = (p) => ((p.trend.at(-1) - p.trend[0]) / p.trend[0]) * 100;
 
 function spark(trend) {
+  if (trend.length < 2) return "0,15 100,15";
   const lo = Math.min(...trend);
   const hi = Math.max(...trend);
   const range = hi - lo || 1;
@@ -102,22 +26,42 @@ function spark(trend) {
     .join(" ");
 }
 
-function quoteFor(price, bags) {
+// Same formula as the server (server/src/money.js). The server's bill is the one that is charged.
+function quoteFor(price, bags, charges) {
   const value = price * bags;
-  const brokerage = value * BROKERAGE_RATE;
-  const platformFee = PLATFORM_FEE;
-  const gst = (brokerage + platformFee) * GST_RATE;
+  const brokerage = value * charges.brokerageRate;
+  const platformFee = charges.platformFee;
+  const gst = (brokerage + platformFee) * charges.gstRate;
   return { value, brokerage, platformFee, gst, total: value + brokerage + platformFee + gst };
+}
+
+async function fetchMarket() {
+  const [catalog, { rates }] = await Promise.all([
+    api("/market/catalog", { as: "none" }),
+    api("/market/rates", { as: "none" }),
+  ]);
+  return { ...catalog, rates };
+}
+
+async function fetchAccount() {
+  const [{ user }, { holdings }] = await Promise.all([api("/me"), api("/me/holdings")]);
+  return { user, holdings };
 }
 
 /* ---------- Page ---------- */
 function Explore() {
   const { fmt } = useMoney();
+  const navigate = useNavigate();
+  const loggedIn = isLoggedIn();
+  const firstName = (getUser()?.name || "there").split(" ")[0];
+
+  const [market, setMarket] = useState(null); // { products, cities, charges, maxBags, rates }
+  const [loadError, setLoadError] = useState("");
   const [cityName, setCityName] = useState("Ahmedabad");
   const [compareKey, setCompareKey] = useState("potato");
   const [sortAsc, setSortAsc] = useState(true);
 
-  const [wallet, setWallet] = useState(START_WALLET);
+  const [wallet, setWallet] = useState(null); // { available, onHold }
   const [holdings, setHoldings] = useState({}); // { "Ahmedabad|potato": { bags, avgCost } }
   const [toast, setToast] = useState("");
 
@@ -125,14 +69,58 @@ function Explore() {
   const [bags, setBagsState] = useState(1);
   const [pin, setPin] = useState("");
   const [investError, setInvestError] = useState("");
+  const [investBusy, setInvestBusy] = useState(false);
 
-  const city = cities.find((c) => c.name === cityName);
-  const prices = commodities.map((c) => priceFor(city, c));
+  /* Load prices (public) and, when logged in, wallet + holdings */
+  const applyAccount = useCallback(({ user, holdings: list }) => {
+    setWallet(user.wallet);
+    updateUser({ balance: user.wallet.available, kyc: user.kyc });
+    setHoldings(Object.fromEntries(list.map((h) => [`${h.city}|${h.product}`, { bags: h.bags, avgCost: h.avgCost }])));
+  }, []);
+  const loadMarket = useCallback(() => fetchMarket().then(setMarket).catch((err) => setLoadError(err.message)), []);
+  const loadAccount = useCallback(() => {
+    if (isLoggedIn()) fetchAccount().then(applyAccount).catch(() => {});
+  }, [applyAccount]);
 
-  const updatedAt = useMemo(
-    () => new Date().toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }),
-    []
+  useEffect(() => {
+    let alive = true;
+    fetchMarket()
+      .then((m) => alive && setMarket(m))
+      .catch((err) => alive && setLoadError(err.message));
+    if (isLoggedIn()) {
+      fetchAccount()
+        .then((a) => alive && applyAccount(a))
+        .catch(() => {}); // not fatal: prices still show
+    }
+    return () => {
+      alive = false;
+    };
+  }, [applyAccount]);
+
+  const commodities = useMemo(
+    () => (market?.products || []).map((p) => ({ ...p, image: PRODUCT_IMAGES[p.key] })),
+    [market]
   );
+  const cities = market?.cities || [];
+  const states = [...new Set(cities.map((c) => c.state))];
+  const citiesIn = (state) => cities.filter((c) => c.state === state);
+
+  const priceFor = useCallback(
+    (city, commodity) => {
+      const r = market?.rates.find((x) => x.city === city.name && x.product === commodity.key);
+      if (!r) return null;
+      return { city, commodity, price: r.price, change: r.change, trend: r.trend, min: r.min, max: r.max, arrivals: r.arrivals, updatedAt: r.updatedAt };
+    },
+    [market]
+  );
+
+  const city = cities.find((c) => c.name === cityName) || cities[0];
+  const prices = city ? commodities.map((c) => priceFor(city, c)).filter(Boolean) : [];
+
+  const updatedAt = useMemo(() => {
+    const latest = Math.max(0, ...(market?.rates || []).map((r) => new Date(r.updatedAt).getTime()));
+    return latest ? new Date(latest).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }) : "";
+  }, [market]);
 
   /* City */
   const selectCity = (name) => {
@@ -140,25 +128,19 @@ function Explore() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  /* Compare table */
-  const compareCommodity = commodities.find((c) => c.key === compareKey);
-  const compareRows = cities
-    .map((c) => priceFor(c, compareCommodity))
-    .sort((a, b) => (sortAsc ? a.price - b.price : b.price - a.price));
-  const byPrice = [...compareRows].sort((a, b) => a.price - b.price);
-  const cheapest = byPrice[0].city.name;
-  const dearest = byPrice[byPrice.length - 1].city.name;
-  const myComparePrice = priceFor(city, compareCommodity).price;
-  const diffPct = (r) => ((r.price - myComparePrice) / myComparePrice) * 100;
-
   /* Invest dialog */
+  const maxBags = market?.maxBags ?? 500;
   const setBags = (n) => {
     const num = Math.floor(Number(n)) || 1;
-    setBagsState(Math.min(MAX_BAGS, Math.max(1, num)));
+    setBagsState(Math.min(maxBags, Math.max(1, num)));
   };
 
   const openInvest = (p, e) => {
     if (e) e.stopPropagation(); // don't trigger the table-row click
+    if (!loggedIn) {
+      navigate("/login");
+      return;
+    }
     setInvestFor(p);
     setBagsState(1);
     setPin("");
@@ -174,38 +156,88 @@ function Explore() {
     return () => window.removeEventListener("keydown", onKey);
   }, [investFor]);
 
+  const available = wallet?.available ?? 0;
   const holdKey = investFor ? `${investFor.city.name}|${investFor.commodity.key}` : "";
   const existing = holdings[holdKey];
-  const quote = investFor ? quoteFor(investFor.price, bags) : null;
-  const shortfall = quote ? Math.max(0, quote.total - wallet) : 0;
+  const quote = investFor ? quoteFor(investFor.price, bags, market.charges) : null;
+  const shortfall = quote ? Math.max(0, Math.round((quote.total - available) * 100) / 100) : 0;
 
   const maxAffordable = useMemo(() => {
     if (!investFor) return 0;
-    let n = Math.floor(wallet / investFor.price);
-    while (n > 0 && quoteFor(investFor.price, n).total > wallet) n--;
-    return Math.min(n, MAX_BAGS);
-  }, [investFor, wallet]);
+    let n = Math.min(Math.floor(available / investFor.price), maxBags);
+    while (n > 0 && quoteFor(investFor.price, n, market.charges).total > available) n--;
+    return n;
+  }, [investFor, available, maxBags, market]);
 
-  const confirmInvest = () => {
+  const confirmInvest = async () => {
+    if (investBusy) return;
     if (shortfall > 0) {
       setInvestError("Not enough money in your wallet.");
       return;
     }
-    if (pin !== DEMO_PIN) {
-      setInvestError("Incorrect PIN. Please try again.");
+    if (!/^\d{6}$/.test(pin)) {
+      setInvestError("Enter your 6-digit transaction PIN.");
       return;
     }
     const p = investFor;
-    setWallet((w) => w - quote.total);
-    setHoldings((h) => {
-      const old = h[holdKey] || { bags: 0, avgCost: 0 };
-      const totalBags = old.bags + bags;
-      const avgCost = Math.round((old.bags * old.avgCost + bags * p.price) / totalBags);
-      return { ...h, [holdKey]: { bags: totalBags, avgCost } };
-    });
-    setToast(`Bought ${bags} ${bags === 1 ? "bag" : "bags"} of ${p.commodity.name.toLowerCase()} in ${p.city.name}.`);
-    closeInvest();
+    setInvestBusy(true);
+    try {
+      const res = await api("/me/orders", {
+        method: "POST",
+        body: { side: "Buy", product: p.commodity.key, city: p.city.name, bags, pin },
+      });
+      setWallet(res.wallet);
+      updateUser({ balance: res.wallet.available });
+      setToast(`Bought ${bags} ${bags === 1 ? "bag" : "bags"} of ${p.commodity.name.toLowerCase()} in ${p.city.name}.`);
+      closeInvest();
+      loadAccount();
+    } catch (err) {
+      if (err.status === 401) navigate("/login");
+      setInvestError(err.message);
+      setPin("");
+    } finally {
+      setInvestBusy(false);
+    }
   };
+
+  /* Loading / error states */
+  if (!market || !city) {
+    return (
+      <div className="cp-page">
+        <main className="cp-main">
+          {loadError ? (
+            <p className="error">
+              {loadError}{" "}
+              <button
+                type="button"
+                className="cp-invest sm"
+                onClick={() => {
+                  setLoadError("");
+                  loadMarket();
+                }}
+              >
+                Try again
+              </button>
+            </p>
+          ) : (
+            <p className="muted">Loading today's mandi rates…</p>
+          )}
+        </main>
+      </div>
+    );
+  }
+
+  /* Compare table */
+  const compareCommodity = commodities.find((c) => c.key === compareKey) || commodities[0];
+  const compareRows = cities
+    .map((c) => priceFor(c, compareCommodity))
+    .filter(Boolean)
+    .sort((a, b) => (sortAsc ? a.price - b.price : b.price - a.price));
+  const byPrice = [...compareRows].sort((a, b) => a.price - b.price);
+  const cheapest = byPrice[0]?.city.name;
+  const dearest = byPrice[byPrice.length - 1]?.city.name;
+  const myComparePrice = priceFor(city, compareCommodity)?.price ?? 0;
+  const diffPct = (r) => (myComparePrice ? ((r.price - myComparePrice) / myComparePrice) * 100 : 0);
 
   return (
     <div className="cp-page">
@@ -219,7 +251,11 @@ function Explore() {
         </Link>
         <div className="cp-user" style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <CurrencySwitch />
-          <Link className="cp-link" to="/account">My account</Link>
+          {loggedIn ? (
+            <Link className="cp-link" to="/account">My account</Link>
+          ) : (
+            <Link className="cp-link" to="/login">Login</Link>
+          )}
         </div>
       </header>
 
@@ -237,7 +273,7 @@ function Explore() {
 
         <div className="cp-picker">
           <label htmlFor="city">Choose your city</label>
-          <select id="city" value={cityName} onChange={(e) => selectCity(e.target.value)}>
+          <select id="city" value={city.name} onChange={(e) => selectCity(e.target.value)}>
             {states.map((s) => (
               <optgroup key={s} label={s}>
                 {citiesIn(s).map((c) => (
@@ -248,7 +284,7 @@ function Explore() {
           </select>
           <div className="cp-popular">
             {popular.map((p) => (
-              <button key={p} type="button" className={cityName === p ? "on" : ""} onClick={() => selectCity(p)}>
+              <button key={p} type="button" className={city.name === p ? "on" : ""} onClick={() => selectCity(p)}>
                 {p}
               </button>
             ))}
@@ -266,11 +302,13 @@ function Explore() {
 
         <div className="cp-meta">
           <span>📍 {city.mandi}, {city.name}, {city.state}</span>
-          <span className="cp-wallet">
-            Wallet available: <strong><Money value={wallet} decimals={2} /></strong>
-          </span>
+          {wallet && (
+            <span className="cp-wallet">
+              Wallet available: <strong><Money value={available} decimals={2} /></strong>
+            </span>
+          )}
         </div>
-        <p className="muted cp-note">Updated {updatedAt} · Illustrative</p>
+        {updatedAt && <p className="muted cp-note">Updated {updatedAt}</p>}
 
         {/* TODAY'S RATES IN THE SELECTED CITY */}
         <section className="cp-grid">
@@ -303,7 +341,7 @@ function Explore() {
                 </dl>
 
                 <button type="button" className="cp-invest" onClick={() => openInvest(p)}>
-                  Invest in {p.city.name} ↗
+                  {loggedIn ? `Invest in ${p.city.name} ↗` : "Login to invest ↗"}
                 </button>
               </div>
             </article>
@@ -311,7 +349,7 @@ function Explore() {
         </section>
 
         {/* PRICE CHART */}
-        <PriceChart city={city} commodities={commodities} priceFor={priceFor} />
+        <PriceChart city={city} commodities={commodities} />
 
         {/* COMPARE ACROSS CITIES */}
         <section className="cp-block">
@@ -325,7 +363,7 @@ function Explore() {
                 <button
                   key={c.key}
                   type="button"
-                  className={compareKey === c.key ? "on" : ""}
+                  className={compareCommodity.key === c.key ? "on" : ""}
                   onClick={() => setCompareKey(c.key)}
                 >
                   {c.name}
@@ -352,7 +390,7 @@ function Explore() {
               </thead>
               <tbody>
                 {compareRows.map((r) => {
-                  const mine = r.city.name === cityName;
+                  const mine = r.city.name === city.name;
                   const diff = diffPct(r);
                   return (
                     <tr
@@ -435,14 +473,14 @@ function Explore() {
                   id="bags"
                   type="number"
                   min="1"
-                  max={MAX_BAGS}
+                  max={maxBags}
                   value={bags}
                   onChange={(e) => setBags(e.target.value)}
                 />
                 <button
                   type="button"
                   onClick={() => setBags(bags + 1)}
-                  disabled={bags >= MAX_BAGS}
+                  disabled={bags >= maxBags}
                   aria-label="One bag more"
                 >
                   ＋
@@ -478,7 +516,7 @@ function Explore() {
               </dl>
 
               <div className={`inv-wallet ${shortfall > 0 ? "short" : ""}`}>
-                <span>Wallet available: <strong><Money value={wallet} decimals={2} /></strong></span>
+                <span>Wallet available: <strong><Money value={available} decimals={2} /></strong></span>
                 {shortfall > 0 && (
                   <span>
                     Short by <strong><Money value={shortfall} decimals={2} /></strong> ·{" "}
@@ -503,7 +541,7 @@ function Explore() {
                 }}
                 onKeyDown={(e) => e.key === "Enter" && confirmInvest()}
               />
-              <span className="muted small">Demo PIN: {DEMO_PIN}</span>
+              {import.meta.env.DEV && <span className="muted small">Demo account PIN: 123456</span>}
 
               {investError && <p className="error">{investError}</p>}
 
@@ -514,8 +552,8 @@ function Explore() {
               </p>
 
               <div className="inv-actions">
-                <button type="button" className="btn-solid" onClick={confirmInvest} disabled={shortfall > 0}>
-                  Pay {fmt(quote.total, 2)} &amp; invest
+                <button type="button" className="btn-solid" onClick={confirmInvest} disabled={shortfall > 0 || investBusy}>
+                  {investBusy ? "Placing order…" : <>Pay {fmt(quote.total, 2)} &amp; invest</>}
                 </button>
                 <button type="button" className="btn-outline" onClick={closeInvest}>Cancel</button>
               </div>
@@ -524,8 +562,8 @@ function Explore() {
         )}
 
         <p className="disclaimer">
-          Demo data. Rates are illustrative modal prices per bag, not live mandi rates or investment advice. Actual
-          prices vary with quality, grade and time of day. All trades are settled in INR.
+          Rates are modal prices per bag at each mandi, not investment advice. Actual prices vary with quality, grade
+          and time of day. All trades are settled in INR.
         </p>
       </main>
     </div>

@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "api": "npm --prefix server run dev",
+    "api:test": "npm --prefix server test"
   },
   "dependencies": {
     "bootstrap": "^5.3.8",

@@ -1,9 +1,7 @@
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link, Navigate, useSearchParams } from "react-router-dom";
-import { getUser } from "../auth.js";
-import potatoImg from "../assets/images/potatoes.jpg";
-import garlicImg from "../assets/images/garlic.jpg";
-import onionImg from "../assets/images/onions.jpg";
+import { getUser, isLoggedIn, updateUser } from "../auth.js";
+import { PRODUCT_IMAGES, api } from "../api.js";
 import gpayIcon from "../assets/images/googlepay.svg";
 import phonepeIcon from "../assets/images/phonepe.svg";
 import bhimIcon from "../assets/images/bhim.svg";
@@ -19,21 +17,11 @@ const tabs = [
   { key: "profile", label: "Profile & security" },
 ];
 
-const holdingsData = [
-  { id: "h1", name: "Potato", city: "Ahmedabad", pack: "20 kg bag", bags: 40, avgCost: 405, ltp: 430, prev: 424, trend: [398, 404, 410, 407, 415, 424, 430], image: potatoImg },
-  { id: "h2", name: "Onion", city: "Nashik", pack: "20 kg bag", bags: 25, avgCost: 520, ltp: 548, prev: 541, trend: [512, 518, 530, 526, 535, 541, 548], image: onionImg },
-  { id: "h3", name: "Garlic", city: "Indore", pack: "5 kg bag", bags: 30, avgCost: 700, ltp: 672, prev: 681, trend: [712, 705, 698, 690, 688, 681, 672], image: garlicImg },
-];
-
-const initialTxns = [
-  { id: "TXN100245", type: "Bought", desc: "10 bags potato · Ahmedabad", amount: -4318.6, date: "2026-10-26T11:20:00", status: "Completed" },
-  { id: "TXN100244", type: "Added money", desc: "UPI · Google Pay", amount: 10000, date: "2026-10-26T10:05:00", status: "Completed" },
-  { id: "TXN100243", type: "Charges", desc: "Storage charges · October", amount: -186.5, date: "2026-10-25T18:00:00", status: "Completed" },
-  { id: "TXN100242", type: "Sold", desc: "5 bags onion · Nashik", amount: 2712.4, date: "2026-10-24T15:42:00", status: "Completed" },
-  { id: "TXN100241", type: "Withdrawal", desc: "To HDFC Bank ••••4521", amount: -5000, date: "2026-10-23T09:30:00", status: "Completed" },
-  { id: "TXN100240", type: "Bought", desc: "30 bags garlic · Indore", amount: -21142.8, date: "2026-10-20T12:10:00", status: "Completed" },
-  { id: "TXN100239", type: "Added money", desc: "Bank transfer · NEFT", amount: 40000, date: "2026-10-19T16:45:00", status: "Completed" },
-];
+const KYC_BADGE = {
+  verified: { cls: "ok", label: "✓ Verified" },
+  pending: { cls: "", label: "Under review" },
+  rejected: { cls: "", label: "Rejected" },
+};
 
 const filters = [
   { key: "all", label: "All" },
@@ -65,8 +53,8 @@ const pct = (v) => (v >= 0 ? "+" : "") + v.toFixed(1) + "%";
 const value = (h) => h.bags * h.ltp;
 const cost = (h) => h.bags * h.avgCost;
 const pnl = (h) => value(h) - cost(h);
-const pnlPct = (h) => (pnl(h) / cost(h)) * 100;
-const dayChange = (h) => ((h.ltp - h.prev) / h.prev) * 100;
+const pnlPct = (h) => (cost(h) ? (pnl(h) / cost(h)) * 100 : 0);
+const dayChange = (h) => (h.prev ? ((h.ltp - h.prev) / h.prev) * 100 : 0);
 
 function spark(trend) {
   const lo = Math.min(...trend);
@@ -92,6 +80,15 @@ function cardBrandOf(num) {
 }
 
 /* ---------- Page ---------- */
+async function fetchAccount() {
+  const [{ user }, { holdings }, { transactions }] = await Promise.all([
+    api("/me"),
+    api("/me/holdings"),
+    api("/me/transactions"),
+  ]);
+  return { user, holdings, transactions };
+}
+
 function Account() {
   const [searchParams, setSearchParams] = useSearchParams();
   const authUser = getUser();
@@ -99,9 +96,12 @@ function Account() {
 
   const [hidden, setHidden] = useState(false);
   const [hideGodown, setHideGodown] = useState(false);
-  const [available, setAvailable] = useState(authUser?.balance ?? 25000);
-  const [onHold] = useState(3200);
-  const [txns, setTxns] = useState(initialTxns);
+  const [me, setMe] = useState(null); // profile + wallet from GET /api/me
+  const [holdings, setHoldings] = useState([]);
+  const [txns, setTxns] = useState([]);
+  const [loadError, setLoadError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [pin, setPin] = useState("");
   const [toast, setToast] = useState("");
   const [filter, setFilter] = useState("all");
   const [twoFactor, setTwoFactor] = useState(true);
@@ -116,19 +116,68 @@ function Account() {
   const [card, setCard] = useState({ number: "", name: "", expiry: "", cvv: "" });
   const [panelError, setPanelError] = useState("");
 
-  // Not logged in → go to login
-  if (!authUser) return <Navigate to="/login" replace />;
+  const apply = useCallback(({ user, holdings: list, transactions }) => {
+    setMe(user);
+    setHoldings(list.map((h) => ({ ...h, image: PRODUCT_IMAGES[h.product] })));
+    setTxns(transactions);
+    updateUser({ name: user.name, balance: user.wallet.available, kyc: user.kyc });
+  }, []);
+  const load = useCallback(
+    () => fetchAccount().then(apply).catch((err) => setLoadError(err.message)),
+    [apply]
+  );
 
+  useEffect(() => {
+    if (!isLoggedIn()) return;
+    let alive = true;
+    fetchAccount()
+      .then((data) => alive && apply(data))
+      .catch((err) => alive && setLoadError(err.message));
+    return () => {
+      alive = false;
+    };
+  }, [apply]);
+
+  // Not logged in (or the session expired) → go to login
+  if (!authUser || !isLoggedIn()) return <Navigate to="/login" replace />;
+
+  if (!me) {
+    return (
+      <>
+        <Navbar />
+        <div className="acc-page">
+          <main className="acc-main">
+            {loadError ? (
+              <p className="error">
+                {loadError}{" "}
+                <button
+                  type="button"
+                  className="text-btn"
+                  onClick={() => {
+                    setLoadError("");
+                    load();
+                  }}
+                >
+                  Try again
+                </button>
+              </p>
+            ) : (
+              <p className="muted">Loading your account…</p>
+            )}
+          </main>
+        </div>
+      </>
+    );
+  }
+
+  const dateTime = (d) => (d ? new Date(d).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }) : "First login");
   const user = {
-    ...authUser,
-    mobile: "+91 98•••••210",
-    pan: "ABCDE••••F",
-    bank: "HDFC Bank ••••4521",
-    ifsc: "HDFC0001234",
-    nominee: "Not added",
-    memberSince: "October 2026",
-    lastLogin: new Date().toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }),
+    ...me,
+    memberSince: new Date(me.memberSince).toLocaleDateString("en-IN", { month: "long", year: "numeric" }),
+    lastLogin: dateTime(me.lastLogin),
   };
+  const kycBadge = KYC_BADGE[me.kyc] || KYC_BADGE.pending;
+  const { available, onHold } = me.wallet;
 
   /* Tabs (kept in the URL: /account?tab=holdings) */
   const tabParam = searchParams.get("tab");
@@ -136,16 +185,15 @@ function Account() {
   const selectTab = (key) => setSearchParams(key === "overview" ? {} : { tab: key });
 
   /* Totals */
-  const holdings = holdingsData;
   const balance = available + onHold;
   const godownValue = holdings.reduce((s, h) => s + value(h), 0);
   const invested = holdings.reduce((s, h) => s + cost(h), 0);
   const totalPnl = godownValue - invested;
-  const totalPnlPct = (totalPnl / invested) * 100;
+  const totalPnlPct = invested ? (totalPnl / invested) * 100 : 0;
   const totalBags = holdings.reduce((s, h) => s + h.bags, 0);
   const cityCount = new Set(holdings.map((h) => h.city)).size;
   const todayChange = holdings.reduce((s, h) => s + h.bags * (h.ltp - h.prev), 0);
-  const share = (h) => (value(h) / godownValue) * 100;
+  const share = (h) => (godownValue ? (value(h) / godownValue) * 100 : 0);
 
   const recentTxns = txns.slice(0, 4);
   const filteredTxns = txns.filter((t) => {
@@ -162,6 +210,7 @@ function Account() {
     setPanelError("");
     setUpiId("");
     setUtr("");
+    setPin("");
     setCard({ number: "", name: "", expiry: "", cvv: "" });
   };
   const closePanel = () => setPanel(null);
@@ -184,19 +233,37 @@ function Account() {
 
   const selectedUpi = upiApps.find((a) => a.name === upiApp);
 
-  const addTxn = (txn) =>
-    setTxns((list) => [{ id: "TXN" + Date.now().toString().slice(-6), date: new Date().toISOString(), ...txn }, ...list]);
+  // Send the request to the API, then refresh wallet and passbook
+  const submit = async (path, body, message) => {
+    setBusy(true);
+    try {
+      const res = await api(path, { method: "POST", body });
+      setMe((m) => ({ ...m, wallet: res.wallet }));
+      setTxns((list) => [res.transaction, ...list]);
+      updateUser({ balance: res.wallet.available });
+      setToast(message);
+      closePanel();
+    } catch (err) {
+      setPanelError(err.message);
+      if (panel === "withdraw") setPin("");
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const confirmPanel = () => {
+    if (busy) return;
     const amt = Number(amount);
     if (!amt || amt < 100) return setPanelError("Enter an amount of at least ₹100.");
 
     if (panel === "withdraw") {
       if (amt > available) return setPanelError("You can't withdraw more than your available balance.");
-      setAvailable((a) => a - amt);
-      addTxn({ type: "Withdrawal", desc: `To ${user.bank}`, amount: -amt, status: "Pending" });
-      setToast(`Withdrawal of ${inr(amt)} requested. It will reach your bank in 1 business day.`);
-      return closePanel();
+      if (!/^\d{6}$/.test(pin)) return setPanelError("Enter your 6-digit transaction PIN.");
+      return submit(
+        "/me/wallet/withdrawals",
+        { amount: amt, pin },
+        `Withdrawal of ${inr(amt)} requested. It will reach your bank in 1 business day after approval.`
+      );
     }
 
     if (amt > 200000) return setPanelError("You can add up to ₹2,00,000 at a time.");
@@ -211,20 +278,13 @@ function Account() {
     if (method === "Bank transfer" && utr.trim().length < 6)
       return setPanelError("Enter the UTR / reference number of your transfer.");
 
-    const pending = method === "Bank transfer";
-    if (!pending) setAvailable((a) => a + amt);
-    addTxn({
-      type: "Added money",
-      desc: method === "UPI" ? `UPI · ${upiApp}` : method,
-      amount: amt,
-      status: pending ? "Pending" : "Completed",
-    });
-    setToast(
-      pending
+    submit(
+      "/me/wallet/deposits",
+      { amount: amt, method, upiApp, upiId: upiId.trim(), utr: utr.trim() },
+      method === "Bank transfer"
         ? `We'll add ${inr(amt)} once your bank transfer reaches us.`
-        : `${inr(amt)} added to your wallet.`
+        : `Request sent. ${inr(amt)} will be added once your UPI payment is confirmed.`
     );
-    closePanel();
   };
 
   const cardForm = (
@@ -301,6 +361,13 @@ function Account() {
       <div className="acc-page">
 
       <main className="acc-main">
+        {me.kyc !== "verified" && (
+          <div className="toast">
+            {me.kyc === "rejected"
+              ? "Your KYC was rejected. Please contact support to fix your documents."
+              : "Your KYC is under review. You can add money and trade once it is approved."}
+          </div>
+        )}
         {toast && (
           <div className="toast">
             ✓ {toast}
@@ -523,17 +590,36 @@ function Account() {
                 )}
               </>
             ) : (
-              <p className="muted small">
-                To: {user.bank} · Withdrawable now: <strong>{fmt(available, 2)}</strong>. Money reaches your bank in 1
-                business day.
-              </p>
+              <>
+                <p className="muted small">
+                  To: {user.bank} · Withdrawable now: <strong>{fmt(available, 2)}</strong>. Money reaches your bank in 1
+                  business day after approval.
+                </p>
+                <label htmlFor="wpin">Transaction PIN</label>
+                <input
+                  id="wpin"
+                  type="password"
+                  inputMode="numeric"
+                  maxLength={6}
+                  autoComplete="off"
+                  placeholder="••••••"
+                  value={pin}
+                  onChange={(e) => {
+                    setPin(e.target.value.replace(/\D/g, ""));
+                    setPanelError("");
+                  }}
+                  onKeyDown={(e) => e.key === "Enter" && confirmPanel()}
+                />
+              </>
             )}
 
             {panelError && <span className="error">{panelError}</span>}
 
             <div className="panel-actions">
-              <button type="button" className="btn solid" onClick={confirmPanel}>
-                {panel === "withdraw"
+              <button type="button" className="btn solid" onClick={confirmPanel} disabled={busy}>
+                {busy
+                  ? "Please wait…"
+                  : panel === "withdraw"
                   ? "Request withdrawal"
                   : method === "Bank transfer"
                   ? "I have sent the money"
@@ -541,7 +627,9 @@ function Account() {
               </button>
               <button type="button" className="btn outline" onClick={closePanel}>Cancel</button>
             </div>
-            <p className="muted small">Demo only. No real payment is made. Wallet transactions are settled in INR.</p>
+            <p className="muted small">
+              Deposits are added after our team confirms the payment. Wallet transactions are settled in INR.
+            </p>
           </section>
         )}
 
@@ -565,6 +653,7 @@ function Account() {
                 </div>
                 <span className="muted small">Illustrative</span>
               </div>
+              {holdings.length === 0 && <p className="empty">Buy bags on the Prices page to track their value here.</p>}
               <div className="rate-grid">
                 {holdings.map((h) => (
                   <article className="rate-card" key={h.id}>
@@ -610,6 +699,9 @@ function Account() {
               </div>
               <Link className="text-btn" to="/explore">＋ Invest in any city →</Link>
             </div>
+            {holdings.length === 0 && (
+              <p className="empty">Your godown is empty. <Link to="/explore">Buy your first bags →</Link></p>
+            )}
             <div className="hold-list">
               {holdings.map((h) => (
                 <article className="hold-card" key={h.id}>
@@ -678,14 +770,14 @@ function Account() {
                 <div><dt>Mobile</dt><dd>{user.mobile}</dd></div>
                 <div><dt>Email</dt><dd>{user.email}</dd></div>
                 <div><dt>Member since</dt><dd>{user.memberSince}</dd></div>
-                <div><dt>Status</dt><dd><span className="badge ok">Active</span></dd></div>
+                <div><dt>Status</dt><dd><span className={`badge ${user.blocked ? "" : "ok"}`}>{user.blocked ? "Blocked" : "Active"}</span></dd></div>
               </dl>
             </article>
 
             <article className="info-card">
               <h3>KYC &amp; Bank</h3>
               <dl>
-                <div><dt>KYC status</dt><dd><span className="badge ok">✓ Verified</span></dd></div>
+                <div><dt>KYC status</dt><dd><span className={`badge ${kycBadge.cls}`}>{kycBadge.label}</span></dd></div>
                 <div><dt>PAN</dt><dd>{user.pan}</dd></div>
                 <div><dt>Bank account</dt><dd>{user.bank}</dd></div>
                 <div><dt>IFSC</dt><dd>{user.ifsc}</dd></div>
@@ -702,7 +794,7 @@ function Account() {
                 </div>
                 <div>
                   <dt>Transaction PIN</dt>
-                  <dd>Set <button type="button" className="text-btn">Reset</button></dd>
+                  <dd>{user.pinLocked ? "Locked for a few minutes (too many wrong tries)" : "Set"} <button type="button" className="text-btn">Reset</button></dd>
                 </div>
                 <div><dt>Last login</dt><dd>{user.lastLogin}</dd></div>
                 <div>
@@ -721,8 +813,7 @@ function Account() {
         )}
 
         <p className="disclaimer">
-          Demo dashboard with sample data. Prices and balances are illustrative, not live rates or investment advice.
-          Your wallet and orders are settled in INR.
+          Values use today's mandi rates and are not investment advice. Your wallet and orders are settled in INR.
         </p>
       </main>
     </div>

@@ -9,13 +9,22 @@ function Login() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
 
-  const onSubmit = (e) => {
+  const onSubmit = async (e) => {
     e.preventDefault();
-    if (login(username, password)) {
+    if (!username.trim() || !password) {
+      setError("Enter your mobile or email and password.");
+      return;
+    }
+    setBusy(true);
+    try {
+      await login(username.trim(), password);
       navigate("/explore");
-    } else {
-      setError("Wrong email or password. Use the demo login below.");
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -69,13 +78,15 @@ function Login() {
 
           {error && <span className="error">{error}</span>}
 
-          <button type="submit" className="btn-primary submit">
-            Login <span>↗</span>
+          <button type="submit" className="btn-primary submit" disabled={busy}>
+            {busy ? "Logging in…" : <>Login <span>↗</span></>}
           </button>
 
-          <p className="demo-hint">
-            Demo Login <strong>test@gmail.com</strong> / <strong>123456</strong>
-          </p>
+          {import.meta.env.DEV && (
+            <p className="demo-hint">
+              Demo Login <strong>test@gmail.com</strong> / <strong>123456</strong>
+            </p>
+          )}
 
           <div className="register-link">
             <span>Don't have an Account?</span>

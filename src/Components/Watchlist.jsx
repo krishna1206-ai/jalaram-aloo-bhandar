@@ -1,15 +1,41 @@
+import { useEffect, useState } from "react";
 import potato from "../assets/images/potatoes.jpg";
 import garlic from "../assets/images/garlic.jpg";
 import onion from "../assets/images/onions.jpg";
 import "./Watchlist.css";
-   import Money from "./Money";
-const commodities = [
-  { name: "Potatoes", image: potato, unit: "Per 20 kg bag", price: 420, change: 2.4 },
-  { name: "Garlic", image: garlic, unit: "Per 5 kg bag", price: 680, change: -1.2 },
-  { name: "Onions", image: onion, unit: "Per 20 kg bag", price: 560, change: 3.8 },
+import Money from "./Money";
+import { api } from "../api.js";
+
+// Shown until live averages load (or if the API can't be reached)
+const fallback = [
+  { key: "potato", name: "Potatoes", image: potato, unit: "Per 20 kg bag", price: 420, change: 2.4 },
+  { key: "garlic", name: "Garlic", image: garlic, unit: "Per 5 kg bag", price: 680, change: -1.2 },
+  { key: "onion", name: "Onions", image: onion, unit: "Per 20 kg bag", price: 560, change: 3.8 },
 ];
 
 function Watchlist() {
+  const [commodities, setCommodities] = useState(fallback);
+  const [live, setLive] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    api("/market/summary", { as: "none" })
+      .then(({ summary }) => {
+        if (!alive || !summary.length) return;
+        setCommodities(
+          fallback.map((c) => {
+            const s = summary.find((x) => x.product === c.key);
+            return s ? { ...c, price: s.price, change: s.change } : c;
+          })
+        );
+        setLive(true);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
+
   return (
     <section id="market-preview" className="watchlist">
       <div className="section-heading">
@@ -17,7 +43,7 @@ function Watchlist() {
           <span className="section-kicker">THE MARKET WATCHLIST</span>
           <h2>Three essentials. One place.</h2>
         </div>
-        <span className="sample-note">Illustrative · Prices in INR</span>
+        <span className="sample-note">{live ? "Average of all mandis · INR" : "Illustrative · Prices in INR"}</span>
       </div>
 
       <div className="commodity-grid">
@@ -32,7 +58,7 @@ function Watchlist() {
               </div>
               <div className="commodity-price">
                 <strong>
-                     <Money value={item.price} />
+                  <Money value={item.price} />
                 </strong>
                 <small className={up ? "up" : "down"}>
                   {up ? "↗︎" : "↘︎"} {Math.abs(item.change)}% today
@@ -44,7 +70,7 @@ function Watchlist() {
       </div>
 
       <p className="disclaimer">
-        Demo welcome page. Prices shown are illustrative, not live rates or investment advice.
+        Prices are averages of today's mandi rates on this platform, not investment advice.
       </p>
     </section>
   );

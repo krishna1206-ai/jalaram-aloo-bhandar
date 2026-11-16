@@ -1,40 +1,33 @@
-// Simple demo login, saved in the browser so it survives a page refresh
-const KEY = "jab-user";
-
-const DEMO_USER = {
-  name: "Test User",
-  email: "test@gmail.com",
-  clientId: "JAB10234",
-  balance: 25000,
-};
+// User login, backed by the API. The token and a small user summary are kept in localStorage
+// so the navbar can show the account right after a page refresh.
+import { api, userSession } from "./api.js";
 
 export function getUser() {
-  try {
-    const saved = localStorage.getItem(KEY);
-    return saved ? JSON.parse(saved) : null;
-  } catch {
-    return null;
-  }
+  return userSession.get()?.user ?? null;
 }
 
-export function login(email, password) {
-  if (email.trim().toLowerCase() === DEMO_USER.email && password === "123456") {
-    try {
-      localStorage.setItem(KEY, JSON.stringify(DEMO_USER));
-    } catch {
-      /* storage blocked: login still works for this visit */
-    }
-    return true;
-  }
-  return false;
+export function isLoggedIn() {
+  return Boolean(userSession.get()?.token);
+}
+
+export async function login(identifier, password) {
+  const { token, user } = await api("/auth/login", { method: "POST", body: { identifier, password }, as: "none" });
+  userSession.set({ token, user });
+  return user;
+}
+
+export function saveSession(token, user) {
+  userSession.set({ token, user });
+}
+
+// Keep the cached summary (name, balance) in step with the latest /api/me answer
+export function updateUser(changes) {
+  const s = userSession.get();
+  if (s) userSession.set({ ...s, user: { ...s.user, ...changes } });
 }
 
 export function logout() {
-  try {
-    localStorage.removeItem(KEY);
-  } catch {
-    /* ignore */
-  }
+  userSession.clear();
 }
 
 export function initialsOf(name = "") {

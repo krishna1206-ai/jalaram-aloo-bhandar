@@ -1,142 +1,35 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, Navigate, useNavigate } from "react-router-dom";
 import potatoImg from "../assets/images/potatoes.jpg";
 import onionImg from "../assets/images/onions.jpg";
 import garlicImg from "../assets/images/garlic.jpg";
 import "./Admin.css";
 import { isAdminLoggedIn, adminLogout } from "./AdminLogin.jsx";
+import { api, apiBlob } from "../api.js";
 
 /* =========================================================
-   Admin panel (React version of <app-admin>)
-   Demo data, saved in this browser (localStorage) only.
+   Admin panel, backed by /api/admin on the server
    ========================================================= */
 
-const STORAGE_KEY = "jab-admin-v2"; // v2: rates now have low, high and arrivals
-
-/* ---------- Demo data ---------- */
 const PRODUCTS = [
-  { key: "potato", name: "Potato", pack: "20 kg bag", base: 415, image: potatoImg },
-  { key: "onion", name: "Onion", pack: "20 kg bag", base: 565, image: onionImg },
-  { key: "garlic", name: "Garlic", pack: "5 kg bag", base: 676, image: garlicImg },
+  { key: "potato", name: "Potato", pack: "20 kg bag", image: potatoImg },
+  { key: "onion", name: "Onion", pack: "20 kg bag", image: onionImg },
+  { key: "garlic", name: "Garlic", pack: "5 kg bag", image: garlicImg },
 ];
 
-const CITIES = [
-  ["Ahmedabad", "Gujarat", "Jamalpur APMC", 1.02],
-  ["Rajkot", "Gujarat", "Rajkot APMC", 0.99],
-  ["Surat", "Gujarat", "Sardar Market APMC", 1.07],
-  ["Deesa", "Gujarat", "Deesa APMC", 0.8],
-  ["Mumbai", "Maharashtra", "Vashi APMC", 1.15],
-  ["Pune", "Maharashtra", "Gultekdi Market Yard", 0.98],
-  ["Nashik", "Maharashtra", "Lasalgaon APMC", 0.95],
-  ["Delhi", "Delhi", "Azadpur Mandi", 1.11],
-  ["Agra", "Uttar Pradesh", "Agra Mandi", 0.83],
-  ["Lucknow", "Uttar Pradesh", "Dubagga Mandi", 0.93],
-  ["Indore", "Madhya Pradesh", "Devi Ahilya Bai APMC", 0.93],
-  ["Mandsaur", "Madhya Pradesh", "Mandsaur APMC", 0.96],
-  ["Jaipur", "Rajasthan", "Muhana Mandi", 1.04],
-  ["Kolkata", "West Bengal", "Posta Bazar", 0.92],
-  ["Bengaluru", "Karnataka", "Yeshwanthpur APMC", 1.0],
-  ["Hyderabad", "Telangana", "Bowenpally Market", 1.12],
-  ["Chennai", "Tamil Nadu", "Koyambedu Market", 1.08],
-].map(([name, state, mandi, f]) => ({ name, state, mandi, f }));
-
-// Potato rates from the live site: [today, % vs yesterday, low, high, arrivals]
-const POTATO_RATES = {
-  Ahmedabad: [389, -1.8, 357, 426, 3092],
-  Rajkot: [400, 0.0, 372, 439, 1350],
-  Surat: [416, 1.7, 377, 447, 1686],
-  Deesa: [332, -2.1, 301, 355, 1678],
-  Mumbai: [458, -0.7, 428, 493, 4382],
-  Pune: [435, 1.4, 394, 477, 3556],
-  Nashik: [462, 2.2, 434, 502, 3518],
-  Delhi: [412, -0.7, 376, 440, 4296],
-  Agra: [344, 1.2, 320, 363, 2813],
-  Lucknow: [396, 1.5, 362, 432, 3839],
-  Indore: [391, -1.3, 359, 429, 3100],
-  Mandsaur: [392, 0.0, 362, 421, 2302],
-  Jaipur: [437, 0.5, 407, 474, 2164],
-  Kolkata: [363, -0.5, 329, 391, 2039],
-  Bengaluru: [480, 1.3, 439, 521, 1880],
-  Hyderabad: [457, -0.7, 424, 499, 3723],
-  Chennai: [447, 2.1, 407, 485, 2190],
+const DOC_LABELS = {
+  panCard: "PAN card",
+  aadhaarFront: "Aadhaar (front)",
+  selfie: "Selfie",
+  signature: "Signature",
+  cheque: "Cancelled cheque",
 };
 
-// Time helper: days ago + "HH:MM" -> timestamp
-function at(daysAgo, hhmm) {
-  const [h, m] = hhmm.split(":").map(Number);
-  const d = new Date();
-  d.setDate(d.getDate() - daysAgo);
-  d.setHours(h, m, 0, 0);
-  return d.getTime();
-}
+const adminApi = (path, options = {}) => api(path, { ...options, as: "admin" });
 
-function seedData() {
-  const users = [
-    { id: "JAB-2026-004821", name: "Rakesh Patel", mobile: "98250 41120", city: "Ahmedabad", kyc: "verified", blocked: false, balance: 48250.75, joined: at(40, "11:00") },
-    { id: "JAB-2026-004822", name: "Meena Shah", mobile: "99090 23415", city: "Surat", kyc: "verified", blocked: false, balance: 62400, joined: at(38, "16:20") },
-    { id: "JAB-2026-004827", name: "Arjun Mehta", mobile: "97277 80913", city: "Rajkot", kyc: "verified", blocked: true, balance: 15200, joined: at(35, "10:05") },
-    { id: "JAB-2026-004830", name: "Imran Qureshi", mobile: "98980 55107", city: "Mumbai", kyc: "pending", blocked: false, balance: 0, joined: at(1, "14:45") },
-    { id: "JAB-2026-004833", name: "Sunita Yadav", mobile: "94140 77231", city: "Agra", kyc: "verified", blocked: false, balance: 21486.25, joined: at(30, "09:30") },
-    { id: "JAB-2026-004836", name: "Neha Desai", mobile: "90990 61882", city: "Vadodara", kyc: "verified", blocked: false, balance: 54800, joined: at(25, "18:10") },
-    { id: "JAB-2026-004841", name: "Priya Nair", mobile: "98470 31266", city: "Bengaluru", kyc: "pending", blocked: false, balance: 9000, joined: at(2, "12:00") },
-    { id: "JAB-2026-004845", name: "Vikram Singh", mobile: "98110 44590", city: "Delhi", kyc: "verified", blocked: false, balance: 71000, joined: at(20, "15:15") },
-    { id: "JAB-2026-004852", name: "Mohit Agarwal", mobile: "98310 20984", city: "Kolkata", kyc: "verified", blocked: false, balance: 38000, joined: at(12, "11:40") },
-    { id: "JAB-2026-004858", name: "Kavita Joshi", mobile: "96010 88342", city: "Indore", kyc: "pending", blocked: false, balance: 0, joined: at(0, "08:05") },
-  ];
-
-  const walletRequests = [
-    { id: "WR9012", userId: "JAB-2026-004822", type: "out", amount: 20000, method: "Bank · HDFC ••4410", time: at(0, "09:40"), status: "pending" },
-    { id: "WR9011", userId: "JAB-2026-004841", type: "in", amount: 15000, method: "UPI · priya@okaxis", time: at(0, "08:15"), status: "pending" },
-    { id: "WR9008", userId: "JAB-2026-004845", type: "out", amount: 12500, method: "Bank · SBI ••7782", time: at(1, "17:02"), status: "pending" },
-    { id: "WR9006", userId: "JAB-2026-004833", type: "in", amount: 8000, method: "UPI · sunita@ybl", time: at(1, "11:30"), status: "pending" },
-    { id: "WR8990", userId: "JAB-2026-004821", type: "out", amount: 5000, method: "Bank · ICICI ••2209", time: at(6, "14:10"), status: "pending" },
-    { id: "WR8975", userId: "JAB-2026-004836", type: "in", amount: 25000, method: "UPI · neha@okhdfc", time: at(8, "10:20"), status: "approved" },
-    { id: "WR8961", userId: "JAB-2026-004852", type: "in", amount: 10000, method: "Bank transfer", time: at(10, "13:05"), status: "approved" },
-    { id: "WR8944", userId: "JAB-2026-004827", type: "out", amount: 30000, method: "Bank · Axis ••5531", time: at(14, "16:40"), status: "rejected" },
-  ];
-
-  const orders = [
-    { id: "OR55120", userId: "JAB-2026-004822", side: "Buy", item: "onion", city: "Nashik", bags: 40, rate: 472, time: at(0, "10:12") },
-    { id: "OR55118", userId: "JAB-2026-004845", side: "Buy", item: "potato", city: "Agra", bags: 60, rate: 346, time: at(0, "09:58") },
-    { id: "OR55111", userId: "JAB-2026-004821", side: "Buy", item: "garlic", city: "Mandsaur", bags: 8, rate: 541, time: at(0, "09:20") },
-    { id: "OR55104", userId: "JAB-2026-004833", side: "Sell", item: "potato", city: "Agra", bags: 15, rate: 351, time: at(1, "15:44") },
-    { id: "OR55097", userId: "JAB-2026-004852", side: "Buy", item: "potato", city: "Kolkata", bags: 25, rate: 382, time: at(1, "12:31") },
-    { id: "OR55083", userId: "JAB-2026-004836", side: "Buy", item: "onion", city: "Surat", bags: 30, rate: 598, time: at(3, "11:02") },
-    { id: "OR55071", userId: "JAB-2026-004821", side: "Sell", item: "potato", city: "Ahmedabad", bags: 10, rate: 421, time: at(5, "16:18") },
-    { id: "OR55060", userId: "JAB-2026-004845", side: "Buy", item: "garlic", city: "Delhi", bags: 12, rate: 752, time: at(7, "10:47") },
-  ];
-
-  // Mandi rates per city (₹ per bag): today, yesterday, low, high, arrivals
-  let seed = 7;
-  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
-  const rates = {};
-  PRODUCTS.forEach((p) => {
-    rates[p.key] = CITIES.map((c) => {
-      const fixed = p.key === "potato" && POTATO_RATES[c.name];
-      if (fixed) {
-        const [today, change, low, high, arrivals] = fixed;
-        return { city: c.name, today, yesterday: today / (1 + change / 100), low, high, arrivals };
-      }
-      const today = Math.round(p.base * c.f * (0.96 + rnd() * 0.08));
-      const yesterday = Math.round(today / (1 + (rnd() - 0.5) * 0.05));
-      const low = Math.round(today * (0.9 + rnd() * 0.03));
-      const high = Math.round(today * (1.06 + rnd() * 0.04));
-      const arrivals = Math.round(1300 + rnd() * 3100);
-      return { city: c.name, today, yesterday, low, high, arrivals };
-    });
-  });
-
-  return { users, walletRequests, orders, rates };
-}
-
-function loadData() {
-  try {
-    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
-    if (saved && saved.users && saved.rates) return saved;
-  } catch {
-    /* ignore */
-  }
-  return seedData();
+async function fetchPanel() {
+  const [overview, catalog] = await Promise.all([adminApi("/admin/overview"), api("/market/catalog", { as: "none" })]);
+  return { ...overview, cities: catalog.cities };
 }
 
 /* ---------- Format helpers ---------- */
@@ -170,19 +63,35 @@ const SECTIONS = [
    ========================================================= */
 function Admin() {
   const navigate = useNavigate();
-  const [data, setData] = useState(loadData);
+  const [data, setData] = useState(null);
+  const [loadError, setLoadError] = useState("");
   const [section, setSection] = useState("dashboard");
   const [toast, setToast] = useState("");
   const [confirmReset, setConfirmReset] = useState(false);
+  const [signedOut, setSignedOut] = useState(!isAdminLoggedIn());
 
-  // Save every change in this browser
+  // A 401 from any call means the admin token expired
+  const fail = useCallback((err) => {
+    if (err.status === 401) setSignedOut(true);
+    else setToast(err.message);
+  }, []);
+
+  const reload = useCallback(() => fetchPanel().then(setData).catch(fail), [fail]);
+
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-    } catch {
-      /* ignore */
-    }
-  }, [data]);
+    if (!isAdminLoggedIn()) return;
+    let alive = true;
+    fetchPanel()
+      .then((d) => alive && setData(d))
+      .catch((err) => {
+        if (!alive) return;
+        if (err.status === 401) setSignedOut(true);
+        else setLoadError(err.message);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   // Hide toast after a few seconds
   useEffect(() => {
@@ -191,12 +100,12 @@ function Admin() {
     return () => clearTimeout(t);
   }, [toast]);
 
-  const { users, walletRequests, orders, rates } = data;
-  const userById = useMemo(() => Object.fromEntries(users.map((u) => [u.id, u])), [users]);
+  const users = useMemo(() => data?.users || [], [data]);
+  const userById = useMemo(
+    () => Object.fromEntries([...users, ...(data?.extraUsers || [])].map((u) => [u.id, u])),
+    [users, data]
+  );
   const productByKey = (k) => PRODUCTS.find((p) => p.key === k);
-
-  const kycPending = users.filter((u) => u.kyc === "pending");
-  const pendingRequests = walletRequests.filter((r) => r.status === "pending").sort((a, b) => b.time - a.time);
 
   const go = (key) => {
     setSection(key);
@@ -204,41 +113,59 @@ function Admin() {
   };
 
   /* ---------- Actions ---------- */
-  const updateUser = (id, changes, message) => {
-    setData((d) => ({ ...d, users: d.users.map((u) => (u.id === id ? { ...u, ...changes } : u)) }));
-    if (message) setToast(message);
-  };
+  const replaceUser = (u) => setData((d) => ({ ...d, users: d.users.map((x) => (x.id === u.id ? u : x)) }));
 
-  const decideRequest = (req, approve) => {
-    const user = userById[req.userId];
-    if (approve && req.type === "out" && user.balance < req.amount) {
-      setToast(`Can't approve: ${user.name} has only ${inr2(user.balance)} in the wallet.`);
-      return;
+  const updateUser = async (id, changes, message) => {
+    try {
+      const { user } = await adminApi(`/admin/users/${encodeURIComponent(id)}`, { method: "PATCH", body: changes });
+      replaceUser(user);
+      if (message) setToast(message);
+    } catch (err) {
+      fail(err);
     }
-    setData((d) => ({
-      ...d,
-      walletRequests: d.walletRequests.map((r) => (r.id === req.id ? { ...r, status: approve ? "approved" : "rejected" } : r)),
-      users: approve
-        ? d.users.map((u) =>
-            u.id === req.userId ? { ...u, balance: u.balance + (req.type === "in" ? req.amount : -req.amount) } : u
-          )
-        : d.users,
-    }));
-    setToast(
-      `${req.type === "in" ? "Deposit" : "Withdrawal"} of ${inr(req.amount)} for ${user.name} ${approve ? "approved" : "rejected"}.`
-    );
   };
 
-  const resetDemo = () => {
+  const decideRequest = async (req, approve) => {
+    try {
+      const { request, user } = await adminApi(`/admin/wallet-requests/${encodeURIComponent(req.id)}/decision`, {
+        method: "POST",
+        body: { approve },
+      });
+      setData((d) => ({
+        ...d,
+        walletRequests: d.walletRequests.map((r) => (r.id === request.id ? request : r)),
+        users: d.users.map((u) => (u.id === user.id ? user : u)),
+      }));
+      setToast(
+        `${req.type === "in" ? "Deposit" : "Withdrawal"} of ${inr(req.amount)} for ${user.name} ${approve ? "approved" : "rejected"}.`
+      );
+    } catch (err) {
+      fail(err);
+      if (err.status === 409) reload();
+    }
+  };
+
+  const saveRate = async (productKey, city, values) => {
+    const { rate } = await adminApi(`/admin/rates/${productKey}/${encodeURIComponent(city)}`, { method: "PUT", body: values });
+    setData((d) => ({ ...d, rates: { ...d.rates, [productKey]: d.rates[productKey].map((r) => (r.city === city ? rate : r)) } }));
+    setToast(`${productByKey(productKey).name} rate for ${city} updated.`);
+  };
+
+  const resetDemo = async () => {
     if (!confirmReset) {
       setConfirmReset(true);
       setTimeout(() => setConfirmReset(false), 4000);
       return;
     }
-    setData(seedData());
     setConfirmReset(false);
-    setSection("dashboard");
-    setToast("Demo data has been reset.");
+    try {
+      await adminApi("/admin/reset-demo", { method: "POST" });
+      await reload();
+      setSection("dashboard");
+      setToast("Demo data has been reset.");
+    } catch (err) {
+      fail(err);
+    }
   };
 
   const logout = () => {
@@ -246,11 +173,40 @@ function Admin() {
     navigate("/admin/login", { replace: true });
   };
 
+  // Not signed in → go to the admin sign-in page
+  if (signedOut || !isAdminLoggedIn()) return <Navigate to="/admin/login" replace />;
+
+  if (!data) {
+    return (
+      <div className="ad">
+        <main className="ad-main">
+          {loadError ? (
+            <p className="empty">
+              {loadError}{" "}
+              <button
+                type="button"
+                className="btn sm"
+                onClick={() => {
+                  setLoadError("");
+                  reload();
+                }}
+              >
+                Try again
+              </button>
+            </p>
+          ) : (
+            <p className="empty">Loading admin panel…</p>
+          )}
+        </main>
+      </div>
+    );
+  }
+
+  const { walletRequests, orders, rates, cities } = data;
+  const kycPending = users.filter((u) => u.kyc === "pending");
+  const pendingRequests = walletRequests.filter((r) => r.status === "pending").sort((a, b) => b.time - a.time);
   const counts = { users: kycPending.length, wallet: pendingRequests.length };
   const title = SECTIONS.find((s) => s.key === section).label;
-
-  // Not signed in → go to the admin sign-in page
-  if (!isAdminLoggedIn()) return <Navigate to="/admin/login" replace />;
 
   return (
     <div className="ad">
@@ -284,9 +240,12 @@ function Admin() {
 
         <div className="ad-side-foot">
           <Link to="/">↗ Open the app</Link>
-          <button type="button" onClick={resetDemo}>
-            {confirmReset ? "Click again to reset" : "Reset demo data"}
-          </button>
+          <button type="button" onClick={reload}>Refresh data</button>
+          {data.demoMode && (
+            <button type="button" onClick={resetDemo}>
+              {confirmReset ? "Click again to reset" : "Reset demo data"}
+            </button>
+          )}
         </div>
       </aside>
 
@@ -322,13 +281,14 @@ function Admin() {
               go={go}
             />
           )}
-          {section === "users" && <Users users={users} updateUser={updateUser} />}
+          {section === "users" && <Users users={users} updateUser={updateUser} onError={fail} />}
           {section === "wallet" && <WalletRequests requests={walletRequests} userById={userById} decide={decideRequest} />}
-          {section === "rates" && <Rates rates={rates} />}
+          {section === "rates" && <Rates rates={rates} cities={cities} saveRate={saveRate} />}
           {section === "orders" && <Orders orders={orders} userById={userById} productByKey={productByKey} />}
 
           <p className="disclaimer">
-            Demo admin panel with sample data. Changes are saved in this browser only. Connect it to your backend before real use.
+            Changes are saved on the server straight away. Approving a deposit adds money to the user's wallet, so
+            check that the payment has reached the collection account first.
           </p>
         </main>
       </div>
@@ -454,9 +414,10 @@ function Dashboard({ users, kycPending, pendingRequests, orders, rates, userById
 /* =========================================================
    Users
    ========================================================= */
-function Users({ users, updateUser }) {
+function Users({ users, updateUser, onError }) {
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState("all");
+  const [viewing, setViewing] = useState(null); // full KYC details of one user
 
   const shown = users.filter((u) => {
     const text = `${u.name} ${u.id} ${u.mobile} ${u.city}`.toLowerCase();
@@ -520,6 +481,17 @@ function Users({ users, updateUser }) {
                 <td className="num">{inr2(u.balance)}</td>
                 <td>{dateOnly(u.joined)}</td>
                 <td className="actions">
+                  <button
+                    type="button"
+                    className="btn sm ghost"
+                    onClick={() =>
+                      adminApi(`/admin/users/${encodeURIComponent(u.id)}`)
+                        .then(({ user }) => setViewing(user))
+                        .catch(onError)
+                    }
+                  >
+                    KYC details
+                  </button>
                   {u.kyc === "pending" && (
                     <>
                       <button type="button" className="btn sm ok" onClick={() => updateUser(u.id, { kyc: "verified" }, `KYC approved for ${u.name}.`)}>
@@ -544,7 +516,84 @@ function Users({ users, updateUser }) {
         </table>
         {shown.length === 0 && <p className="empty">No users match your search.</p>}
       </div>
+      {viewing && <KycDetails user={viewing} onClose={() => setViewing(null)} onError={onError} />}
     </section>
+  );
+}
+
+/* KYC application of one user, with the uploaded documents */
+function KycDetails({ user, onClose, onError }) {
+  const [openDoc, setOpenDoc] = useState(null); // { key, url, type }
+
+  useEffect(() => () => openDoc && URL.revokeObjectURL(openDoc.url), [openDoc]);
+
+  // Documents need the admin token, so fetch them as a blob instead of linking directly
+  const showDoc = (key) =>
+    apiBlob(`/admin/users/${encodeURIComponent(user.id)}/documents/${key}`, { as: "admin" })
+      .then((blob) => setOpenDoc({ key, url: URL.createObjectURL(blob), type: blob.type }))
+      .catch(onError);
+
+  const p = user.profile || {};
+  const a = user.address || {};
+  const b = user.bank || {};
+  const n = user.nominee || {};
+  const day = (d) => (d ? dateOnly(d) : "—");
+  const rows = [
+    ["Name", user.name],
+    ["Client ID", user.id],
+    ["Mobile", user.mobileFull],
+    ["Email", user.email],
+    ["PAN", p.pan],
+    ["Date of birth", day(p.dob)],
+    ["Gender / marital status", [p.gender, p.maritalStatus].filter(Boolean).join(" · ")],
+    ["Father's name", p.fatherName],
+    ["Occupation / income", [p.occupation, p.income].filter(Boolean).join(" · ")],
+    ["Experience", p.experience],
+    ["Politically exposed", p.pep ? "Yes, needs extra checks" : "No"],
+    ["Aadhaar", a.aadhaarLast4 ? `•••• •••• ${a.aadhaarLast4}` : "—"],
+    ["Address", [a.line, a.city, a.state, a.pincode].filter(Boolean).join(", ")],
+    ["Bank", b.accountNumber ? `${b.bankName} · ${b.accountNumber} · ${b.ifsc} · ${b.accountType}` : "—"],
+    ["Account holder", b.accountHolder],
+    ["UPI", b.upi || "—"],
+    ["Nominee", n.name ? `${n.name} (${n.relation}), born ${day(n.dob)}${n.guardianName ? ` · guardian ${n.guardianName}` : ""}` : "Not added"],
+  ];
+
+  return (
+    <div className="card" style={{ marginTop: 16 }}>
+      <div className="card-head wrap">
+        <h2>KYC · {user.name}</h2>
+        <button type="button" className="btn sm ghost" onClick={onClose}>Close</button>
+      </div>
+      <div className="table-wrap">
+        <table>
+          <tbody>
+            {rows.map(([k, v]) => (
+              <tr key={k}>
+                <td><strong>{k}</strong></td>
+                <td>{v || "—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="actions" style={{ marginTop: 12, display: "flex", gap: 8, flexWrap: "wrap" }}>
+        {user.documents.length === 0 && <span className="muted">No documents uploaded.</span>}
+        {user.documents.map((d) => (
+          <button key={d.key} type="button" className={`btn sm ${openDoc?.key === d.key ? "ok" : "ghost"}`} onClick={() => showDoc(d.key)}>
+            {DOC_LABELS[d.key] || d.key}
+          </button>
+        ))}
+      </div>
+      {openDoc && (
+        <div style={{ marginTop: 12 }}>
+          {openDoc.type === "application/pdf" ? (
+            <iframe title={DOC_LABELS[openDoc.key]} src={openDoc.url} style={{ width: "100%", height: 480, border: 0 }} />
+          ) : (
+            <img alt={DOC_LABELS[openDoc.key]} src={openDoc.url} style={{ maxWidth: "100%", maxHeight: 480 }} />
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -633,23 +682,67 @@ function WalletRequests({ requests, userById, decide }) {
 /* =========================================================
    Mandi rates
    ========================================================= */
-function Rates({ rates }) {
+function Rates({ rates, cities, saveRate }) {
   const [productKey, setProductKey] = useState("potato");
-  const list = rates[productKey];
-  const cityInfo = (name) => CITIES.find((c) => c.name === name);
+  const [editing, setEditing] = useState(null); // { city, today, low, high, arrivals }
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const list = rates[productKey] || [];
+  const cityInfo = (name) => cities.find((c) => c.name === name);
+
+  const startEdit = (r) => {
+    setError("");
+    setEditing({ city: r.city, today: String(r.today), low: String(r.low), high: String(r.high), arrivals: String(r.arrivals) });
+  };
+  const field = (k) => ({
+    value: editing[k],
+    onChange: (e) => setEditing((x) => ({ ...x, [k]: e.target.value })),
+    inputMode: "decimal",
+    style: { width: 90 },
+    "aria-label": k,
+  });
+  const save = async () => {
+    setSaving(true);
+    setError("");
+    try {
+      await saveRate(productKey, editing.city, {
+        today: Number(editing.today),
+        low: Number(editing.low),
+        high: Number(editing.high),
+        arrivals: Number(editing.arrivals),
+      });
+      setEditing(null);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <section className="card">
       <div className="toolbar">
         <div className="pills">
           {PRODUCTS.map((p) => (
-            <button key={p.key} type="button" className={productKey === p.key ? "on" : ""} onClick={() => setProductKey(p.key)}>
+            <button
+              key={p.key}
+              type="button"
+              className={productKey === p.key ? "on" : ""}
+              onClick={() => {
+                setProductKey(p.key);
+                setEditing(null);
+              }}
+            >
               {p.name}
             </button>
           ))}
         </div>
       </div>
-      <p className="muted">Today's rates as users see them on the Prices page. Rates come from the live price feed.</p>
+      <p className="muted">
+        Today's rates as users see them on the Prices page (₹ per bag). Orders are filled at today's rate. The first
+        edit on a new day moves today's rate to yesterday and adds a new day to the price chart.
+      </p>
+      {error && <p className="neg" role="alert">{error}</p>}
 
       <div className="table-wrap">
         <table>
@@ -660,25 +753,49 @@ function Rates({ rates }) {
               <th className="num">vs yesterday</th>
               <th className="num">Low – High</th>
               <th className="num">Arrivals (bags)</th>
+              <th><span className="sr-only">Actions</span></th>
             </tr>
           </thead>
           <tbody>
             {list.map((r) => {
               const change = ((r.today - r.yesterday) / r.yesterday) * 100;
+              const isEditing = editing?.city === r.city;
               return (
                 <tr key={`${productKey}-${r.city}`}>
                   <td>
                     <strong>{r.city}</strong>
                     <small className="block">{cityInfo(r.city)?.mandi}</small>
                   </td>
-                  <td className="num">
-                    <strong>{inr(r.today)}</strong>
-                  </td>
-                  <td className={`num ${change >= 0 ? "pos" : "neg"}`}>{pct(change)}</td>
-                  <td className="num">
-                    {inr(r.low)} – {inr(r.high)}
-                  </td>
-                  <td className="num">{r.arrivals.toLocaleString("en-IN")}</td>
+                  {isEditing ? (
+                    <>
+                      <td className="num"><input {...field("today")} /></td>
+                      <td className="num muted">—</td>
+                      <td className="num">
+                        <input {...field("low")} /> – <input {...field("high")} />
+                      </td>
+                      <td className="num"><input {...field("arrivals")} inputMode="numeric" /></td>
+                      <td className="actions">
+                        <button type="button" className="btn sm ok" onClick={save} disabled={saving}>
+                          {saving ? "Saving…" : "Save"}
+                        </button>
+                        <button type="button" className="btn sm ghost" onClick={() => setEditing(null)}>Cancel</button>
+                      </td>
+                    </>
+                  ) : (
+                    <>
+                      <td className="num">
+                        <strong>{inr(r.today)}</strong>
+                      </td>
+                      <td className={`num ${change >= 0 ? "pos" : "neg"}`}>{pct(change)}</td>
+                      <td className="num">
+                        {inr(r.low)} – {inr(r.high)}
+                      </td>
+                      <td className="num">{r.arrivals.toLocaleString("en-IN")}</td>
+                      <td className="actions">
+                        <button type="button" className="btn sm ghost" onClick={() => startEdit(r)}>Edit</button>
+                      </td>
+                    </>
+                  )}
                 </tr>
               );
             })}

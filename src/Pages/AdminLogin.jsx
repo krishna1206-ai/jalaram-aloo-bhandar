@@ -1,39 +1,18 @@
 import { useState } from "react";
 import { Link, Navigate, useNavigate } from "react-router-dom";
 import "./AdminLogin.css";
+import { adminSession, api } from "../api.js";
 
 /* =========================================================
-   Admin sign in (React version of her admin login page)
+   Admin sign in (checked by the backend)
    ========================================================= */
 
-const AUTH_KEY = "jab-admin-auth";
-
-// Demo login only. Anyone can read this in the browser,
-// so replace it with a real backend check before going live.
-const DEMO_ADMIN = { username: "admin", password: "admin@123" };
-
 export function isAdminLoggedIn() {
-  try {
-    return sessionStorage.getItem(AUTH_KEY) === "1";
-  } catch {
-    return false;
-  }
-}
-
-export function adminLogin() {
-  try {
-    sessionStorage.setItem(AUTH_KEY, "1");
-  } catch {
-    /* ignore */
-  }
+  return Boolean(adminSession.get());
 }
 
 export function adminLogout() {
-  try {
-    sessionStorage.removeItem(AUTH_KEY);
-  } catch {
-    /* ignore */
-  }
+  adminSession.clear();
 }
 
 function AdminLogin() {
@@ -42,22 +21,26 @@ function AdminLogin() {
   const [password, setPassword] = useState("");
   const [showPass, setShowPass] = useState(false);
   const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
 
   // Already signed in → straight to the panel
   if (isAdminLoggedIn()) return <Navigate to="/admin" replace />;
 
-  const submit = (e) => {
+  const submit = async (e) => {
     e.preventDefault();
     if (!username.trim() || !password) {
       setError("Enter your username and password.");
       return;
     }
-    if (username.trim().toLowerCase() !== DEMO_ADMIN.username || password !== DEMO_ADMIN.password) {
-      setError("Wrong username or password.");
-      return;
+    setBusy(true);
+    try {
+      const { token } = await api("/auth/admin/login", { method: "POST", body: { username: username.trim(), password }, as: "none" });
+      adminSession.set(token);
+      navigate("/admin", { replace: true });
+    } catch (err) {
+      setError(err.message);
+      setBusy(false);
     }
-    adminLogin();
-    navigate("/admin", { replace: true });
   };
 
   return (
@@ -115,11 +98,13 @@ function AdminLogin() {
           </p>
         )}
 
-        <button type="submit" className="al-submit">Sign in</button>
+        <button type="submit" className="al-submit" disabled={busy}>{busy ? "Signing in…" : "Sign in"}</button>
 
-        <p className="al-demo">
-          Demo login: <b>admin</b> / <b>admin@123</b>
-        </p>
+        {import.meta.env.DEV && (
+          <p className="al-demo">
+            Dev login: <b>admin</b> / <b>admin@123</b>
+          </p>
+        )}
         <Link to="/" className="al-back">← Back to the app</Link>
       </form>
     </main>

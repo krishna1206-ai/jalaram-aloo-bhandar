@@ -2,6 +2,9 @@ import './Pricechart.css'
 import Money from "../Components/Money";
 import { useMoney } from "../CurrencyContext";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { api } from "../api.js";
+
+const EMPTY = [];
 
 const RANGES = [
   { id: "24H", title: "the last 24 hours", unit: "hour" },
@@ -11,9 +14,7 @@ const RANGES = [
   { id: "1Y", title: "the last year", unit: "week" },
 ];
 
-const DAY = 24 * 60 * 60 * 1000;
 const HOUR = 60 * 60 * 1000;
-const DAYS = 366;
 
 /* ---------- helpers ---------- */
 function seededRandom(text) {
@@ -37,31 +38,8 @@ const pct = (v, d = 2) => {
 };
 const compact = (n) => new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 }).format(n);
 
-function startOfToday() {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  return d.getTime();
-}
-
-// One year of daily candles ending with the card's 7-day trend
-function buildDaily(city, commodity, priceFor) {
-  const p = priceFor(city, commodity);
-  const r = seededRandom(`${city.name}|${commodity.key}|history`);
-
-  const closes = [...p.trend];
-  while (closes.length < DAYS) closes.unshift(closes[0] * (1 + (r() - 0.515) * 0.035));
-
-  const today = startOfToday();
-  return closes.map((c, i) => {
-    const prev = i ? closes[i - 1] : c;
-    const o = prev * (1 + (r() - 0.5) * 0.01);
-    const h = Math.max(o, c) * (1 + r() * 0.012);
-    const l = Math.min(o, c) * (1 - r() * 0.012);
-    const v = i === DAYS - 1 ? p.arrivals : Math.round(p.arrivals * (0.5 + r()));
-    return { t: today - (DAYS - 1 - i) * DAY, o, h, l, c, v };
-  });
-}
-
+// Daily candles come from the API (GET /api/market/history). The 24H view is an illustrative
+// hourly path between today's open and close, because mandis publish one rate per day.
 function candlesFor(daily, rangeId, seedText) {
   if (rangeId === "1W") return daily.slice(-7);
   if (rangeId === "1M") return daily.slice(-30);
@@ -108,7 +86,7 @@ function candlesFor(daily, rangeId, seedText) {
 }
 
 /* ---------- component ---------- */
-export default function PriceChart({ city, commodities, priceFor }) {
+export default function PriceChart({ city, commodities }) {
   const { fmt, fmtShort } = useMoney();
   const inr = (v) => fmt(v, 2);
   const axis = (v) => fmtShort(v, 2); // single currency, fits inside the chart
@@ -124,8 +102,22 @@ export default function PriceChart({ city, commodities, priceFor }) {
   const range = RANGES.find((r) => r.id === rangeId);
   const unit = range.unit;
 
-  const daily = useMemo(() => buildDaily(city, commodity, priceFor), [city, commodity, priceFor]);
-  const candles = useMemo(() => candlesFor(daily, rangeId, `${city.name}|${commodity.key}`), [daily, rangeId, city.name, commodity.key]);
+  const historyId = `${city.name}|${commodity.key}`;
+  const [history, setHistory] = useState({ id: "", daily: [], error: "" });
+  useEffect(() => {
+    let alive = true;
+    const id = `${city.name}|${commodity.key}`;
+    api(`/market/history?city=${encodeURIComponent(city.name)}&product=${encodeURIComponent(commodity.key)}`, { as: "none" })
+      .then(({ candles }) => alive && setHistory({ id, daily: candles, error: "" }))
+      .catch((err) => alive && setHistory({ id, daily: [], error: err.message }));
+    return () => {
+      alive = false;
+    };
+  }, [city.name, commodity.key]);
+
+  const daily = history.id === historyId ? history.daily : EMPTY;
+  const candles = useMemo(() => (daily.length ? candlesFor(daily, rangeId, historyId) : EMPTY), [daily, rangeId, historyId]);
+  const ready = candles.length > 0;
 
   useEffect(() => setHover(null), [city.name, key, rangeId]);
 
@@ -139,9 +131,18 @@ export default function PriceChart({ city, commodities, priceFor }) {
     const ro = new ResizeObserver(([e]) => setW(Math.max(320, Math.round(e.contentRect.width))));
     ro.observe(el);
     return () => ro.disconnect();
-  }, []);
+  }, [ready]);
   const H = W < 600 ? 320 : 400;
   const gradId = "pc-wash-" + useId().replace(/:/g, "");
+
+  if (!ready) {
+    const failed = history.id === historyId && history.error;
+    return (
+      <section className="pc">
+        <p className="muted">{failed ? `Couldn't load the price history: ${history.error}` : "Loading price history…"}</p>
+      </section>
+    );
+  }
 
   /* stats */
   const n = candles.length;

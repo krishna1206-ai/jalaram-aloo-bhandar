@@ -2,6 +2,19 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import "./Register.css";
 import MapPicker from "./Mappicker";
+import { api } from "../api.js";
+import { saveSession } from "../auth.js";
+
+// Which step each field lives on, so server errors can take the user to the right place
+const FIELD_STEP = {
+  mobile: 0, email: 0,
+  fullName: 1, pan: 1, dob: 1, gender: 1, maritalStatus: 1, fatherName: 1, occupation: 1, income: 1, experience: 1, taxResident: 1,
+  aadhaarLast4: 2, address: 2, city: 2, pincode: 2, state: 2,
+  panCard: 3, aadhaarFront: 3, selfie: 3, signature: 3,
+  accountHolder: 4, accountNumber: 4, confirmAccountNumber: 4, ifsc: 4, accountType: 4, upi: 4, cheque: 4,
+  nomineeName: 5, nomineeRelation: 5, nomineeDob: 5, guardianName: 5, guardianRelation: 5,
+  password: 6, confirmPassword: 6, pin: 6, confirmPin: 6, riskAck: 6, dataConsent: 6, terms: 6,
+};
 
 /* ---------- Data ---------- */
 const steps = ["Verify", "Profile", "Address", "Docs", "Payout Account", "Nominee", "Security"];
@@ -45,7 +58,6 @@ const initialForm = {
 };
 
 const MAX_FILE_SIZE = 2 * 1024 * 1024; // 2 MB
-const DEMO_OTP = "123456";
 
 /* ---------- Helpers ---------- */
 const toISO = (d) => d.toISOString().split("T")[0];
@@ -119,9 +131,13 @@ function Register() {
   const [form, setForm] = useState(initialForm);
 
   const [otp, setOtp] = useState({
-    mobile: { sent: false, verified: false, code: "", error: "" },
-    email: { sent: false, verified: false, code: "", error: "" },
+    mobile: { sent: false, verified: false, code: "", error: "", token: "", busy: false },
+    email: { sent: false, verified: false, code: "", error: "", token: "", busy: false },
   });
+  const [otpDevMode, setOtpDevMode] = useState(false);
+  const [serverErrors, setServerErrors] = useState({});
+  const [submitting, setSubmitting] = useState(false);
+  const [done, setDone] = useState(false);
 
   const [files, setFiles] = useState({});
   const [fileErrors, setFileErrors] = useState({});
@@ -153,13 +169,32 @@ function Register() {
   const next = () => goTo(Math.min(step + 1, steps.length - 1));
   const back = () => goTo(Math.max(step - 1, 0));
 
-  /* OTP (demo) */
+  /* OTP */
   const updateOtp = (k, changes) => setOtp((o) => ({ ...o, [k]: { ...o[k], ...changes } }));
-  const sendOtp = (k) => updateOtp(k, { sent: true, code: "", error: "" });
-  const verifyOtp = (k) =>
-    otp[k].code === DEMO_OTP
-      ? updateOtp(k, { verified: true, error: "" })
-      : updateOtp(k, { error: "Incorrect OTP. Please try again." });
+  const sendOtp = async (k) => {
+    updateOtp(k, { busy: true, error: "" });
+    try {
+      const res = await api("/auth/otp/send", { method: "POST", body: { channel: k, target: form[k] }, as: "none" });
+      if (res.devMode) setOtpDevMode(true);
+      updateOtp(k, { sent: true, code: "", busy: false });
+    } catch (err) {
+      updateOtp(k, { error: err.message, busy: false });
+    }
+  };
+  const verifyOtp = async (k) => {
+    updateOtp(k, { busy: true, error: "" });
+    try {
+      const { token } = await api("/auth/otp/verify", {
+        method: "POST",
+        body: { channel: k, target: form[k], code: otp[k].code },
+        as: "none",
+      });
+      updateOtp(k, { verified: true, token, busy: false });
+      setServerErrors((e) => ({ ...e, [k]: "" }));
+    } catch (err) {
+      updateOtp(k, { error: err.message, busy: false });
+    }
+  };
   const otpButtonLabel = (k) => (otp[k].verified ? "Verified" : otp[k].sent ? "Resend" : "Send OTP");
 
   /* File upload */
@@ -208,11 +243,39 @@ function Register() {
     setPickedLocation({ lat: p.lat, lng: p.lng });
   };
 
-  /* Submit */
-  const onSubmit = (e) => {
+  /* Submit: everything goes to the API as one multipart form */
+  const onSubmit = async (e) => {
     e.preventDefault();
-    setMessage("Application submitted! We'll review your KYC and notify you shortly.");
+    if (submitting || done) return;
+    setSubmitting(true);
+    setMessage("");
+    setServerErrors({});
+
+    const data = new FormData();
+    Object.entries(form).forEach(([k, v]) => data.append(k, typeof v === "boolean" ? String(v) : v));
+    data.append("mobileToken", otp.mobile.token);
+    data.append("emailToken", otp.email.token);
+    if (pickedLocation) {
+      data.append("lat", String(pickedLocation.lat));
+      data.append("lng", String(pickedLocation.lng));
+    }
+    Object.entries(files).forEach(([k, file]) => file && data.append(k, file, file.name));
+
+    try {
+      const { token, user } = await api("/auth/register", { method: "POST", form: data, as: "none" });
+      saveSession(token, user);
+      setDone(true);
+      setMessage(`Application submitted! Your client ID is ${user.clientId}. We'll review your KYC and notify you shortly.`);
+    } catch (err) {
+      setServerErrors(err.fields);
+      setMessage(err.message);
+      const badSteps = Object.keys(err.fields).map((f) => FIELD_STEP[f]).filter((s) => s !== undefined);
+      if (badSteps.length) goTo(Math.min(...badSteps));
+    } finally {
+      setSubmitting(false);
+    }
   };
+  const errorList = Object.entries(serverErrors).filter(([, msg]) => msg);
 
   const nomineeAge = ageFrom(form.nomineeDob);
   const nomineeIsMinor = nomineeAge !== null && nomineeAge < 18;
@@ -234,7 +297,6 @@ function Register() {
 
         <h1>Open your account</h1>
         <p className="sub">Secure KYC in a few minutes to start trading potato, garlic and onion.</p>
-        <p className="demo-badge">Preview mode · validation is off</p>
 
         {/* Stepper */}
         <ol className="stepper">
@@ -276,7 +338,7 @@ function Register() {
                       type="button"
                       className="toggle"
                       onClick={() => sendOtp(k)}
-                      disabled={otp[k].verified || !form[k]}
+                      disabled={otp[k].verified || !form[k] || otp[k].busy}
                     >
                       {otpButtonLabel(k)}
                     </button>
@@ -297,7 +359,7 @@ function Register() {
                         type="button"
                         className="toggle"
                         onClick={() => verifyOtp(k)}
-                        disabled={otp[k].code.length !== 6}
+                        disabled={otp[k].code.length !== 6 || otp[k].busy}
                       >
                         Verify
                       </button>
@@ -307,9 +369,11 @@ function Register() {
                   {otp[k].error && <span className="error">{otp[k].error}</span>}
                 </div>
               ))}
-              <p className="hint">
-                Demo mode: use OTP <strong>{DEMO_OTP}</strong>. No real SMS or email is sent.
-              </p>
+              {otpDevMode && (
+                <p className="hint">
+                  Dev mode: use OTP <strong>123456</strong>. No real SMS or email is sent.
+                </p>
+              )}
             </div>
           )}
 
@@ -685,13 +749,30 @@ function Register() {
                 Continue <span>↗</span>
               </button>
             ) : (
-              <button type="submit" className="btn-primary next">
-                Submit application <span>↗</span>
+              <button type="submit" className="btn-primary next" disabled={submitting || done}>
+                {submitting ? "Submitting…" : <>Submit application <span>↗</span></>}
               </button>
             )}
           </div>
 
-          {message && <p className="success">{message}</p>}
+          {message && <p className={done ? "success" : "error"}>{message}</p>}
+          {!done && errorList.length > 1 && (
+            <ul className="error">
+              {errorList.map(([field, msg]) => (
+                <li key={field}>
+                  <button type="button" className="link" onClick={() => goTo(FIELD_STEP[field] ?? step)}>
+                    {steps[FIELD_STEP[field]] ?? "Form"}
+                  </button>
+                  : {msg}
+                </li>
+              ))}
+            </ul>
+          )}
+          {done && (
+            <p className="switch-text">
+              <Link to="/account">Go to my account →</Link>
+            </p>
+          )}
 
           <p className="switch-text">
             Already have an account? <Link to="/login">Login</Link>
