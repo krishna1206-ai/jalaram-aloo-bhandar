@@ -154,7 +154,13 @@ function Register() {
   const [pickedLocation, setPickedLocation] = useState(null); // { lat, lng }
 
   /* Form field helpers */
-  const set = (name, value) => setForm((f) => ({ ...f, [name]: value }));
+  const set = (name, value) => {
+    setForm((f) => ({ ...f, [name]: value }));
+    if (["ifsc", "accountNumber", "confirmAccountNumber"].includes(name)) {
+      setBankVerified(false);
+      setBankInfo(null);
+    }
+  };
   const bind = (name) => ({ value: form[name], onChange: (e) => set(name, e.target.value) });
   const bindDigits = (name) => ({ value: form[name], onChange: (e) => set(name, e.target.value.replace(/\D/g, "")) });
   const bindUpper = (name) => ({ value: form[name], onChange: (e) => set(name, e.target.value.toUpperCase()) });
@@ -222,13 +228,25 @@ function Register() {
       />
     ));
 
-  /* Bank (demo) */
-  const verifyBank = () => {
+  /* Bank: check the IFSC code exists and show the branch */
+  const [bankInfo, setBankInfo] = useState(null);
+  const [bankError, setBankError] = useState("");
+  const verifyBank = async () => {
+    setBankError("");
+    if (!/^[A-Z]{4}0[A-Z0-9]{6}$/.test(form.ifsc)) return setBankError("Enter a valid IFSC code first, like SBIN0001234.");
+    if (!/^\d{9,18}$/.test(form.accountNumber) || form.accountNumber !== form.confirmAccountNumber) {
+      return setBankError("Enter and confirm your account number first.");
+    }
     setBankBusy(true);
-    setTimeout(() => {
-      setBankBusy(false);
+    try {
+      const { bank } = await api(`/auth/ifsc/${form.ifsc}`, { as: "none" });
+      setBankInfo(bank);
       setBankVerified(true);
-    }, 1200);
+    } catch (err) {
+      setBankError(err.message);
+    } finally {
+      setBankBusy(false);
+    }
   };
 
   /* Map picker: fill the address fields from the chosen point */
@@ -593,8 +611,14 @@ function Register() {
                 onClick={verifyBank}
                 disabled={bankBusy || bankVerified}
               >
-                {bankBusy ? "Verifying…" : bankVerified ? "Bank account verified ✓" : "Verify bank account"}
+                {bankBusy ? "Checking…" : bankVerified ? "Bank branch found ✓" : "Verify bank account"}
               </button>
+              {bankInfo && (
+                <p className="hint">
+                  ✓ {bankInfo.bank}, {bankInfo.branch} ({bankInfo.city}). Our team confirms the account during KYC review.
+                </p>
+              )}
+              {bankError && <span className="error">{bankError}</span>}
             </div>
           )}
 

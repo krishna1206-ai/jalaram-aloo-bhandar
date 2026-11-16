@@ -1,17 +1,116 @@
 import { Router } from "express";
+import rateLimit from "express-rate-limit";
 import { productByKey } from "../catalog.js";
+import { config } from "../config.js";
+import { HttpError, badRequest, validator } from "../errors.js";
 import { requireUser } from "../middleware/auth.js";
 import { quoteInRupees, toRupees } from "../money.js";
-import { Holding, Order, Rate, Transaction } from "../models/index.js";
+import { Holding, Order, Rate, Transaction, User } from "../models/index.js";
+import { deleteFiles } from "../services/files.js";
+import { checkDocs, kycUpload, storeDocs } from "../services/kyc.js";
+import { sendOtp, verifyOtp } from "../services/otp.js";
+import { createPaymentOrder, verifyCheckout } from "../services/payments.js";
+import { checkSecret, hashSecret, passwordProblem } from "../services/security.js";
+import { userToken } from "../services/tokens.js";
 import { placeOrder } from "../services/trade.js";
 import { requestDeposit, requestWithdrawal } from "../services/wallet.js";
-import { meView, orderView, txnView, walletView } from "../services/views.js";
+import { meView, orderView, sessionUser, txnView, walletView } from "../services/views.js";
 
-// Everything about the logged-in user: GET /api/me, wallet, holdings, orders
+// Everything about the logged-in user: GET /api/me, wallet, holdings, orders, security
 const router = Router();
 router.use(requireUser);
 
+const secretLimit = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: config.isTest ? 10_000 : 10,
+  standardHeaders: "draft-8",
+  legacyHeaders: false,
+  keyGenerator: (req) => String(req.user._id),
+  message: { error: "Too many attempts. Please wait 15 minutes." },
+});
+
+async function requirePassword(user, password) {
+  if (!(await checkSecret(password, user.passwordHash))) {
+    throw badRequest("Your current password is wrong.", { currentPassword: "Wrong password." });
+  }
+}
+
+const fresh = (req) => User.findById(req.user._id);
+
 router.get("/", (req, res) => {
+  res.json({ user: meView(req.user) });
+});
+
+/* ---------- Settings and security ---------- */
+
+// Body: { marketing?, twoFactor?, password (needed to change twoFactor) }
+router.patch("/settings", secretLimit, async (req, res) => {
+  const { marketing, twoFactor, password } = req.body || {};
+  const set = {};
+  if (marketing !== undefined) {
+    if (typeof marketing !== "boolean") throw badRequest("marketing must be true or false.");
+    set["consents.marketing"] = marketing;
+  }
+  if (twoFactor !== undefined) {
+    if (typeof twoFactor !== "boolean") throw badRequest("twoFactor must be true or false.");
+    await requirePassword(req.user, password);
+    set.twoFactor = twoFactor;
+  }
+  if (!Object.keys(set).length) throw badRequest("Nothing to change.");
+  await User.updateOne({ _id: req.user._id }, { $set: set });
+  res.json({ user: meView(await fresh(req)) });
+});
+
+// Body: { currentPassword, newPassword }. Signs out other devices; returns a new token for this one.
+router.post("/password", secretLimit, async (req, res) => {
+  const { currentPassword, newPassword } = req.body || {};
+  await requirePassword(req.user, currentPassword);
+  const problem = passwordProblem(newPassword);
+  if (problem) throw badRequest(problem, { newPassword: problem });
+  if (await checkSecret(newPassword, req.user.passwordHash)) throw badRequest("Choose a password you haven't used here.", { newPassword: "Same as before." });
+  req.user.passwordHash = await hashSecret(newPassword);
+  req.user.tokenVersion = (req.user.tokenVersion ?? 0) + 1;
+  await req.user.save();
+  res.json({ token: userToken(req.user), user: sessionUser(req.user) });
+});
+
+// Step 1 of a PIN reset: OTP to the registered mobile
+router.post("/pin/otp", secretLimit, async (req, res) => {
+  await sendOtp("reset-pin", "mobile", req.user.mobile);
+  res.json({ sent: true, ...(config.otpDevMode && { devMode: true }) });
+});
+
+// Step 2. Body: { password, code, pin }
+router.post("/pin", secretLimit, async (req, res) => {
+  const { password, code, pin } = req.body || {};
+  await requirePassword(req.user, password);
+  if (!/^\d{6}$/.test(String(pin ?? ""))) throw badRequest("Your new PIN must be 6 digits.", { pin: "6 digits." });
+  await verifyOtp("reset-pin", "mobile", req.user.mobile, code);
+  await User.updateOne({ _id: req.user._id }, { pinHash: await hashSecret(pin), pinFailures: 0, $unset: { pinLockedUntil: 1 } });
+  res.json({ reset: true });
+});
+
+// Signs out every device, including this one
+router.post("/logout-all", async (req, res) => {
+  await User.updateOne({ _id: req.user._id }, { $inc: { tokenVersion: 1 } });
+  res.json({ loggedOut: true });
+});
+
+/* ---------- KYC re-upload (after a rejection, or while under review) ---------- */
+
+router.post("/kyc/documents", kycUpload, async (req, res) => {
+  if (req.user.kyc?.status === "verified") throw new HttpError(409, "Your KYC is already verified.");
+  const v = validator();
+  const keys = checkDocs(req.files, v, { required: false });
+  v.done();
+  if (!keys.length) throw badRequest("Choose at least one document to upload.");
+
+  const { documents } = await storeDocs(req.files, keys, req.user.mobile);
+  const replaced = req.user.documents.filter((d) => keys.includes(d.key));
+  req.user.documents = [...req.user.documents.filter((d) => !keys.includes(d.key)), ...documents];
+  req.user.kyc = { status: "pending", note: "", reviewedAt: undefined };
+  await req.user.save();
+  await deleteFiles(replaced.map((d) => d.fileId));
   res.json({ user: meView(req.user) });
 });
 
@@ -70,6 +169,17 @@ router.post("/orders", async (req, res) => {
 router.post("/wallet/deposits", async (req, res) => {
   const { request, txn } = await requestDeposit(req.user, req.body || {});
   res.status(201).json({ requestId: request.reqId, transaction: txnView(txn), wallet: walletView(req.user) });
+});
+
+// Online payment, step 1. Body: { amount }. Returns what Razorpay Checkout needs.
+router.post("/wallet/payments", async (req, res) => {
+  res.status(201).json({ checkout: await createPaymentOrder(req.user, req.body?.amount) });
+});
+
+// Online payment, step 2. Body: { orderId, paymentId, signature } from Razorpay Checkout
+router.post("/wallet/payments/verify", async (req, res) => {
+  const { status, txn } = await verifyCheckout(req.user, req.body || {});
+  res.json({ status, transaction: txn ? txnView(txn) : null, wallet: walletView(await fresh(req)) });
 });
 
 // Body: { amount, pin }

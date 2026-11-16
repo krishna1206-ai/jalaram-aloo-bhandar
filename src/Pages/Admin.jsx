@@ -5,7 +5,7 @@ import onionImg from "../assets/images/onions.jpg";
 import garlicImg from "../assets/images/garlic.jpg";
 import "./Admin.css";
 import { isAdminLoggedIn, adminLogout } from "./AdminLogin.jsx";
-import { api, apiBlob } from "../api.js";
+import { adminSession, api, apiBlob } from "../api.js";
 
 /* =========================================================
    Admin panel, backed by /api/admin on the server
@@ -48,6 +48,7 @@ const ICONS = {
   wallet: "M3 7a2 2 0 0 1 2-2h13v4M3 7v11a2 2 0 0 0 2 2h15V9H5a2 2 0 0 1-2-2Zm13 7h.01",
   rates: "M3 20h18M6 16v-5m4 5V8m4 8v-3m4 3V5",
   orders: "M6 3h12l2 4H4zM4 7v13h16V7M9 12h6",
+  activity: "M12 8v4l3 2m6-2a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z",
 };
 
 const SECTIONS = [
@@ -56,6 +57,7 @@ const SECTIONS = [
   { key: "wallet", label: "Wallet requests" },
   { key: "rates", label: "Mandi rates" },
   { key: "orders", label: "Orders" },
+  { key: "activity", label: "Activity log" },
 ];
 
 /* =========================================================
@@ -285,6 +287,7 @@ function Admin() {
           {section === "wallet" && <WalletRequests requests={walletRequests} userById={userById} decide={decideRequest} />}
           {section === "rates" && <Rates rates={rates} cities={cities} saveRate={saveRate} />}
           {section === "orders" && <Orders orders={orders} userById={userById} productByKey={productByKey} />}
+          {section === "activity" && <Activity onError={fail} onToast={setToast} />}
 
           <p className="disclaimer">
             Changes are saved on the server straight away. Approving a deposit adds money to the user's wallet, so
@@ -497,7 +500,10 @@ function Users({ users, updateUser, onError }) {
                       <button type="button" className="btn sm ok" onClick={() => updateUser(u.id, { kyc: "verified" }, `KYC approved for ${u.name}.`)}>
                         Approve KYC
                       </button>
-                      <button type="button" className="btn sm bad" onClick={() => updateUser(u.id, { kyc: "rejected" }, `KYC rejected for ${u.name}.`)}>
+                      <button type="button" className="btn sm bad" onClick={() => {
+                          const note = window.prompt(`Why is the KYC of ${u.name} rejected? The user will see this.`, "Documents are not clear");
+                          if (note && note.trim()) updateUser(u.id, { kyc: "rejected", note: note.trim() }, `KYC rejected for ${u.name}.`);
+                        }}>
                         Reject
                       </button>
                     </>
@@ -887,6 +893,133 @@ function OrdersTable({ orders, userById, productByKey }) {
       </table>
       {orders.length === 0 && <p className="empty">No orders found.</p>}
     </div>
+  );
+}
+
+
+/* =========================================================
+   Activity log + admin password
+   ========================================================= */
+const ACTION_LABELS = {
+  "wallet.approve": "Approved wallet request",
+  "wallet.reject": "Rejected wallet request",
+  "kyc.verified": "Approved KYC",
+  "kyc.rejected": "Rejected KYC",
+  "kyc.pending": "Sent KYC back to review",
+  "user.block": "Blocked user",
+  "user.unblock": "Unblocked user",
+  "rate.update": "Updated mandi rate",
+  "demo.reset": "Reset demo data",
+  "admin.password": "Changed admin password",
+};
+
+function describeDetail(e) {
+  const d = e.detail || {};
+  if (e.action.startsWith("wallet.")) return `${d.type === "in" ? "Deposit" : "Withdrawal"} ${inr(d.amount || 0)} · ${d.user || ""}`;
+  if (e.action === "rate.update") return `Today ${inr(d.today)} · ${inr(d.low)}–${inr(d.high)} · ${d.arrivals} bags`;
+  if (e.action === "kyc.rejected") return d.note || "";
+  return "";
+}
+
+async function fetchAudit() {
+  return (await adminApi("/admin/audit")).entries;
+}
+
+function Activity({ onError, onToast }) {
+  const [entries, setEntries] = useState(null);
+  const [pw, setPw] = useState({ currentPassword: "", newPassword: "" });
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    fetchAudit()
+      .then((list) => alive && setEntries(list))
+      .catch((err) => alive && onError(err));
+    return () => {
+      alive = false;
+    };
+  }, [onError]);
+
+  const changePassword = async () => {
+    setSaving(true);
+    try {
+      const { token } = await adminApi("/admin/password", { method: "POST", body: pw });
+      adminSession.set(token);
+      setPw({ currentPassword: "", newPassword: "" });
+      onToast("Admin password changed. Other admin sessions were signed out.");
+    } catch (err) {
+      onError(err);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <>
+      <section className="card">
+        <div className="card-head">
+          <h2>Who did what</h2>
+          <small className="muted">Every change to money, KYC, users and rates is recorded here.</small>
+        </div>
+        {!entries ? (
+          <p className="empty">Loading…</p>
+        ) : entries.length === 0 ? (
+          <p className="empty">No admin actions yet.</p>
+        ) : (
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>When</th>
+                  <th>Admin</th>
+                  <th>Action</th>
+                  <th>On</th>
+                  <th>Details</th>
+                </tr>
+              </thead>
+              <tbody>
+                {entries.map((e) => (
+                  <tr key={e.id}>
+                    <td>{when(e.time)}</td>
+                    <td>{e.admin}</td>
+                    <td>{ACTION_LABELS[e.action] || e.action}</td>
+                    <td>{e.target}</td>
+                    <td className="muted">{describeDetail(e)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      <section className="card">
+        <div className="card-head">
+          <h2>Change admin password</h2>
+        </div>
+        <div className="tools" style={{ flexWrap: "wrap", gap: 8 }}>
+          <input
+            type="password"
+            placeholder="Current password"
+            autoComplete="current-password"
+            value={pw.currentPassword}
+            onChange={(e) => setPw((x) => ({ ...x, currentPassword: e.target.value }))}
+            aria-label="Current password"
+          />
+          <input
+            type="password"
+            placeholder="New password (10+ characters)"
+            autoComplete="new-password"
+            value={pw.newPassword}
+            onChange={(e) => setPw((x) => ({ ...x, newPassword: e.target.value }))}
+            aria-label="New password"
+          />
+          <button type="button" className="btn sm ok" onClick={changePassword} disabled={saving || !pw.currentPassword || !pw.newPassword}>
+            {saving ? "Saving…" : "Change password"}
+          </button>
+        </div>
+      </section>
+    </>
   );
 }
 

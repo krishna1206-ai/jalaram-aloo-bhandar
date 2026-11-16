@@ -1,14 +1,15 @@
 import { Router } from "express";
 import rateLimit from "express-rate-limit";
-import multer from "multer";
 import { config } from "../config.js";
 import { withTransaction } from "../db.js";
 import { HttpError, badRequest, validator } from "../errors.js";
-import { Admin, User, newClientId } from "../models/index.js";
-import { deleteFiles, saveFile, sniffType } from "../services/files.js";
+import { Admin, User, accountFields, newClientId, panFields, panLookup } from "../models/index.js";
+import { IFSC_RE, lookupIfsc } from "../services/bank.js";
+import { deleteFiles } from "../services/files.js";
+import { checkDocs, kycUpload, storeDocs } from "../services/kyc.js";
 import { checkTarget, normalizeTarget, sendOtp, verifyOtp } from "../services/otp.js";
 import { checkSecret, hashSecret, passwordProblem } from "../services/security.js";
-import { adminToken, readToken, userToken } from "../services/tokens.js";
+import { adminToken, loginChallenge, readToken, userToken, verifiedToken } from "../services/tokens.js";
 import { sessionUser } from "../services/views.js";
 
 const router = Router();
@@ -25,44 +26,15 @@ const limiter = (limit, minutes, message) =>
 const loginLimit = limiter(10, 15, "Too many login attempts. Please wait 15 minutes and try again.");
 const otpLimit = limiter(10, 15, "Too many OTP requests. Please wait a few minutes.");
 const registerLimit = limiter(5, 60, "Too many sign-ups from this network. Please try again later.");
-
-/* ---------- OTP (registration step 1) ---------- */
-
-router.post("/otp/send", otpLimit, async (req, res) => {
-  const channel = req.body?.channel;
-  const target = normalizeTarget(channel, req.body?.target);
-  checkTarget(channel, target);
-  const taken = await User.exists(channel === "email" ? { email: target } : { mobile: target });
-  if (taken) throw new HttpError(409, `This ${channel === "email" ? "email" : "mobile number"} is already registered. Please log in.`);
-  await sendOtp(channel, target);
-  res.json({ sent: true, ...(config.otpDevMode && { devMode: true }) });
-});
-
-router.post("/otp/verify", otpLimit, async (req, res) => {
-  const channel = req.body?.channel;
-  const target = normalizeTarget(channel, req.body?.target);
-  checkTarget(channel, target);
-  const token = await verifyOtp(channel, target, req.body?.code);
-  res.json({ verified: true, token });
-});
-
-/* ---------- Registration ---------- */
-
-const DOCS = {
-  panCard: ["image/jpeg", "image/png", "image/webp", "application/pdf"],
-  aadhaarFront: ["image/jpeg", "image/png", "image/webp", "application/pdf"],
-  selfie: ["image/jpeg", "image/png", "image/webp"],
-  signature: ["image/jpeg", "image/png", "image/webp"],
-  cheque: ["image/jpeg", "image/png", "image/webp", "application/pdf"],
-};
-
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 2 * 1024 * 1024, files: 5, fields: 60, fieldSize: 10 * 1024 },
-}).fields(Object.keys(DOCS).map((name) => ({ name, maxCount: 1 })));
+const lookupLimit = limiter(60, 15, "Too many lookups. Please wait a few minutes.");
 
 const yes = (v) => v === true || v === "true" || v === "on";
 const str = (v, max = 200) => String(v ?? "").trim().slice(0, max);
+const devFlag = () => (config.otpDevMode ? { devMode: true } : {});
+
+// Compare against a real hash even when the account doesn't exist, so timing doesn't reveal accounts
+let dummyHash;
+const DUMMY = async () => (dummyHash ??= await hashSecret("not-a-real-password"));
 
 function ageOn(date) {
   const now = new Date();
@@ -77,7 +49,49 @@ const parseDate = (v) => {
   return d && !Number.isNaN(d.getTime()) ? d : null;
 };
 
-router.post("/register", registerLimit, upload, async (req, res) => {
+// Finds a user by email or mobile number (with or without +91)
+export function findByIdentifier(identifier) {
+  const id = str(identifier, 100).toLowerCase();
+  if (!id) return null;
+  if (id.includes("@")) return User.findOne({ email: id });
+  const digits = id.replace(/\D/g, "");
+  return User.findOne({ mobile: digits.length === 12 && digits.startsWith("91") ? digits.slice(2) : digits });
+}
+
+const maskTarget = (channel, t) =>
+  channel === "email" ? t.replace(/^(.{2}).*(@.*)$/, "$1•••$2") : `+91 ${t.slice(0, 2)}•••••${t.slice(-3)}`;
+
+/* ---------- OTP for registration ---------- */
+
+router.post("/otp/send", otpLimit, async (req, res) => {
+  const channel = req.body?.channel;
+  const target = normalizeTarget(channel, req.body?.target);
+  checkTarget(channel, target);
+  const taken = await User.exists(channel === "email" ? { email: target } : { mobile: target });
+  if (taken) throw new HttpError(409, `This ${channel === "email" ? "email" : "mobile number"} is already registered. Please log in.`);
+  await sendOtp("register", channel, target);
+  res.json({ sent: true, ...devFlag() });
+});
+
+router.post("/otp/verify", otpLimit, async (req, res) => {
+  const channel = req.body?.channel;
+  const target = normalizeTarget(channel, req.body?.target);
+  checkTarget(channel, target);
+  await verifyOtp("register", channel, target, req.body?.code);
+  res.json({ verified: true, token: verifiedToken(channel, target) });
+});
+
+/* ---------- Bank lookup (used by "Verify bank account") ---------- */
+
+router.get("/ifsc/:code", lookupLimit, async (req, res) => {
+  const bank = await lookupIfsc(req.params.code);
+  if (!bank) throw new HttpError(404, "No bank branch found for this IFSC code.");
+  res.json({ bank });
+});
+
+/* ---------- Registration ---------- */
+
+router.post("/register", registerLimit, kycUpload, async (req, res) => {
   const b = req.body || {};
   const files = req.files || {};
   if (str(b.website)) throw badRequest("Registration failed."); // spam-trap field was filled in
@@ -110,15 +124,8 @@ router.post("/register", registerLimit, upload, async (req, res) => {
   v.check(/^[1-9]\d{5}$/.test(str(b.pincode)), "pincode", "Enter a valid 6-digit pincode.");
   v.check(str(b.state), "state", "Select your state.");
 
-  // Documents: check the real file type from the bytes
-  for (const [key, allowed] of Object.entries(DOCS)) {
-    const file = files[key]?.[0];
-    if (!v.check(file, key, "Upload this document.")) continue;
-    const type = sniffType(file.buffer);
-    if (v.check(type && allowed.includes(type), key, allowed.includes("application/pdf") ? "Upload a JPG, PNG, WebP or PDF file." : "Upload a JPG, PNG or WebP image.")) {
-      file.detectedType = type;
-    }
-  }
+  // Documents
+  const docKeys = checkDocs(files, v);
 
   // Bank
   const accountNumber = str(b.accountNumber).replace(/\D/g, "");
@@ -127,7 +134,7 @@ router.post("/register", registerLimit, upload, async (req, res) => {
   v.check(str(b.accountHolder).length >= 2, "accountHolder", "Enter the account holder name.");
   v.check(/^\d{9,18}$/.test(accountNumber), "accountNumber", "Enter a valid bank account number (9–18 digits).");
   v.check(accountNumber === str(b.confirmAccountNumber).replace(/\D/g, ""), "confirmAccountNumber", "Account numbers do not match.");
-  v.check(/^[A-Z]{4}0[A-Z0-9]{6}$/.test(ifsc), "ifsc", "Enter a valid IFSC code, like SBIN0001234.");
+  v.check(IFSC_RE.test(ifsc), "ifsc", "Enter a valid IFSC code, like SBIN0001234.");
   v.check(["Savings", "Current"].includes(str(b.accountType)), "accountType", "Select the account type.");
   v.check(!upi || /^[\w.-]{2,}@[a-zA-Z]{2,}$/.test(upi), "upi", "Enter a valid UPI ID, like name@bank.");
 
@@ -155,26 +162,26 @@ router.post("/register", registerLimit, upload, async (req, res) => {
 
   v.done();
 
-  if (await User.exists({ $or: [{ email }, { mobile }, { "profile.pan": pan }] })) {
+  // The IFSC must exist. If the lookup service itself is down, don't block sign-up.
+  let branchInfo = null;
+  try {
+    branchInfo = await lookupIfsc(ifsc);
+    if (!branchInfo) throw badRequest("No bank branch found for this IFSC code.", { ifsc: "Not found." });
+  } catch (err) {
+    if (err.status === 400) throw err;
+  }
+
+  if (await User.exists({ $or: [{ email }, { mobile }, panLookup(pan)] })) {
     throw new HttpError(409, "An account with this mobile, email or PAN already exists. Please log in.");
   }
 
   const [passwordHash, pinHash] = await Promise.all([hashSecret(b.password), hashSecret(b.pin)]);
+  const { documents, savedIds } = await storeDocs(files, docKeys, mobile);
 
-  const savedIds = [];
   try {
-    const documents = [];
-    for (const key of Object.keys(DOCS)) {
-      const file = files[key][0];
-      const ext = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "application/pdf": "pdf" }[file.detectedType];
-      const fileId = await saveFile(file.buffer, { filename: `${key}.${ext}`, contentType: file.detectedType, metadata: { mobile, key } });
-      savedIds.push(fileId);
-      documents.push({ key, fileId, filename: file.originalname.slice(0, 120), contentType: file.detectedType, size: file.size });
-    }
-
     const lat = Number(b.lat);
     const lng = Number(b.lng);
-    const hasPoint = Number.isFinite(lat) && Number.isFinite(lng) && b.lat !== "" && b.lng !== "";
+    const hasPoint = b.lat !== "" && b.lng !== "" && Number.isFinite(lat) && Number.isFinite(lng);
 
     const user = await withTransaction(async (session) => {
       const [created] = await User.create(
@@ -186,14 +193,17 @@ router.post("/register", registerLimit, upload, async (req, res) => {
           passwordHash,
           pinHash,
           profile: {
-            pan, dob, gender: str(b.gender), maritalStatus: str(b.maritalStatus), fatherName: str(b.fatherName, 100),
+            ...panFields(pan), dob, gender: str(b.gender), maritalStatus: str(b.maritalStatus), fatherName: str(b.fatherName, 100),
             occupation: str(b.occupation), income: str(b.income), experience: str(b.experience), pep: b.pep === "yes", taxResident: true,
           },
           address: {
             aadhaarLast4: str(b.aadhaarLast4), line: str(b.address, 300), city: str(b.city, 80), pincode: str(b.pincode), state: str(b.state, 80),
             ...(hasPoint && { lat, lng }),
           },
-          bank: { accountHolder: str(b.accountHolder, 100), accountNumber, ifsc, accountType: str(b.accountType), upi },
+          bank: {
+            accountHolder: str(b.accountHolder, 100), ...accountFields(accountNumber), ifsc, accountType: str(b.accountType), upi,
+            ...(branchInfo && { bankName: branchInfo.bank, branch: branchInfo.branch }),
+          },
           nominee: nomineeName
             ? { name: nomineeName, relation: str(b.nomineeRelation), dob: nomineeDob, guardianName: str(b.guardianName, 100), guardianRelation: str(b.guardianRelation) }
             : undefined,
@@ -213,32 +223,79 @@ router.post("/register", registerLimit, upload, async (req, res) => {
   }
 });
 
-/* ---------- Login ---------- */
+/* ---------- Login (with optional two-step OTP) ---------- */
 
-router.post("/login", loginLimit, async (req, res) => {
-  const identifier = str(req.body?.identifier ?? req.body?.email, 100).toLowerCase();
-  const password = String(req.body?.password ?? "");
-  if (!identifier || !password) throw badRequest("Enter your mobile or email and password.");
-
-  const digits = identifier.replace(/\D/g, "");
-  const query = identifier.includes("@") ? { email: identifier } : { mobile: digits.length === 12 && digits.startsWith("91") ? digits.slice(2) : digits };
-  const user = await User.findOne(query);
-  // Same message whether the account exists or not, so accounts can't be discovered
-  if (!user || !(await checkSecret(password, user.passwordHash))) throw new HttpError(401, "Wrong mobile/email or password.");
-  if (user.blocked) throw new HttpError(403, "Your account is blocked. Please contact support.");
-
+async function finishLogin(user, res) {
   user.prevLoginAt = user.lastLoginAt;
   user.lastLoginAt = new Date();
   await user.save();
   res.json({ token: userToken(user), user: sessionUser(user) });
+}
+
+router.post("/login", loginLimit, async (req, res) => {
+  const password = String(req.body?.password ?? "");
+  const identifier = req.body?.identifier ?? req.body?.email;
+  if (!str(identifier) || !password) throw badRequest("Enter your mobile or email and password.");
+
+  const user = await findByIdentifier(identifier);
+  const ok = await checkSecret(password, user?.passwordHash || (await DUMMY()));
+  // Same message whether the account exists or not, so accounts can't be discovered
+  if (!user || !ok) throw new HttpError(401, "Wrong mobile/email or password.");
+  if (user.blocked) throw new HttpError(403, "Your account is blocked. Please contact support.");
+
+  if (user.twoFactor) {
+    await sendOtp("login", "mobile", user.mobile);
+    return res.json({ twoFactor: true, challenge: loginChallenge(user), sentTo: maskTarget("mobile", user.mobile), ...devFlag() });
+  }
+  await finishLogin(user, res);
 });
+
+// Body: { challenge, code }
+router.post("/login/verify", loginLimit, async (req, res) => {
+  const payload = readToken(req.body?.challenge, "login-challenge");
+  if (!payload) throw new HttpError(401, "This login has expired. Please enter your password again.");
+  const user = await User.findById(payload.sub);
+  if (!user || (payload.v ?? 0) !== (user.tokenVersion ?? 0)) throw new HttpError(401, "This login has expired. Please enter your password again.");
+  if (user.blocked) throw new HttpError(403, "Your account is blocked. Please contact support.");
+  await verifyOtp("login", "mobile", user.mobile, req.body?.code);
+  await finishLogin(user, res);
+});
+
+/* ---------- Forgot password ---------- */
+
+// Body: { identifier }. Always answers the same way, so it can't be used to find accounts.
+router.post("/password/forgot", otpLimit, async (req, res) => {
+  const user = await findByIdentifier(req.body?.identifier);
+  if (user && !user.blocked) {
+    await sendOtp("reset-password", "mobile", user.mobile).catch((err) => {
+      if (err.status !== 429) throw err;
+    });
+  }
+  res.json({ sent: true, message: "If an account exists, we have sent an OTP to its registered mobile number.", ...devFlag() });
+});
+
+// Body: { identifier, code, password }
+router.post("/password/reset", otpLimit, async (req, res) => {
+  const problem = passwordProblem(req.body?.password);
+  if (problem) throw badRequest(problem, { password: problem });
+  const user = await findByIdentifier(req.body?.identifier);
+  if (!user) throw badRequest("This OTP has expired. Please request a new one.", { code: "Expired." });
+  await verifyOtp("reset-password", "mobile", user.mobile, req.body?.code);
+  user.passwordHash = await hashSecret(req.body.password);
+  user.tokenVersion = (user.tokenVersion ?? 0) + 1; // sign out every device
+  await user.save();
+  res.json({ reset: true });
+});
+
+/* ---------- Admin login ---------- */
 
 router.post("/admin/login", loginLimit, async (req, res) => {
   const username = str(req.body?.username, 60).toLowerCase();
   const password = String(req.body?.password ?? "");
   if (!username || !password) throw badRequest("Enter your username and password.");
   const admin = await Admin.findOne({ username });
-  if (!admin || !(await checkSecret(password, admin.passwordHash))) throw new HttpError(401, "Wrong username or password.");
+  const ok = await checkSecret(password, admin?.passwordHash || (await DUMMY()));
+  if (!admin || !ok) throw new HttpError(401, "Wrong username or password.");
   admin.lastLoginAt = new Date();
   await admin.save();
   res.json({ token: adminToken(admin), admin: { username: admin.username } });

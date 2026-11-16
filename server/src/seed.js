@@ -1,7 +1,7 @@
 import mongoose from "mongoose";
 import { config } from "./config.js";
 import { toPaise } from "./money.js";
-import { Admin, Holding, Order, Otp, Rate, Transaction, User, WalletRequest } from "./models/index.js";
+import { Admin, AuditLog, Holding, Order, Otp, Payment, Rate, Transaction, User, WalletRequest, accountFields, panFields } from "./models/index.js";
 import { seedRates } from "./services/rates.js";
 import { hashSecret } from "./services/security.js";
 
@@ -86,7 +86,7 @@ const TEST_USER = {
 };
 
 async function wipeUserData() {
-  await Promise.all([User, WalletRequest, Transaction, Order, Holding, Otp].map((M) => M.deleteMany({})));
+  await Promise.all([User, WalletRequest, Transaction, Order, Holding, Otp, Payment].map((M) => M.deleteMany({})));
   await new mongoose.mongo.GridFSBucket(mongoose.connection.db, { bucketName: "kyc" }).drop().catch(() => {});
 }
 
@@ -108,9 +108,9 @@ export async function seedDemoData({ reset = false } = {}) {
     clientId, name, mobile, kyc: { status: kyc }, blocked, availablePaise, onHoldPaise: onHold[clientId] || 0,
     email: `${name.toLowerCase().replace(/\s+/g, ".")}@example.com`,
     passwordHash: demoPassword, pinHash: pin,
-    profile: { pan: `DEMO${clientId.slice(-5)}X`.slice(0, 10), gender: "Other", occupation: "Commodity trader", taxResident: true },
+    profile: { ...panFields(`DEMOA${clientId.slice(-4)}X`), gender: "Other", occupation: "Commodity trader", taxResident: true },
     address: { city, state, pincode: "380001", line: "Demo address" },
-    bank: { accountHolder: name, accountNumber, ifsc, accountType: "Savings" },
+    bank: { accountHolder: name, ...accountFields(accountNumber), ifsc, accountType: "Savings" },
     consents: { riskAck: true, dataConsent: true, terms: true, marketing: false, at: joined },
     createdAt: joined,
     ...extra,
@@ -120,7 +120,7 @@ export async function seedDemoData({ reset = false } = {}) {
     base(TEST_USER.clientId, TEST_USER.name, TEST_USER.mobile, "Ahmedabad", "Gujarat", "verified", false, toPaise(TEST_USER.available), at(30, "10:00"), "HDFC0001234", "50100012344521", {
       email: TEST_USER.email,
       passwordHash: testPassword,
-      profile: { pan: "ABCDE1234F", gender: "Other", occupation: "Commodity trader", taxResident: true },
+      profile: { ...panFields("ABCDE1234F"), gender: "Other", occupation: "Commodity trader", taxResident: true },
       nominee: {},
     }),
     ...DEMO_USERS.map(([id, name, mobile, city, state, kyc, blocked, bal, [d, t], ifsc, acc]) =>
@@ -177,5 +177,5 @@ export async function seedAll() {
 
 // Builds collections and unique indexes before the first request (transactions can't create them)
 export async function ensureIndexes() {
-  await Promise.all([User, Admin, Otp, Rate, WalletRequest, Transaction, Order, Holding].map((M) => M.init()));
+  await Promise.all([User, Admin, Otp, Rate, WalletRequest, Transaction, Order, Holding, Payment, AuditLog].map((M) => M.init()));
 }

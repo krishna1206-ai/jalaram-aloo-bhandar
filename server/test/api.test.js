@@ -1,18 +1,57 @@
 // End-to-end API test against a temporary in-memory MongoDB.  Run: npm test
+// External services (IFSC lookup, Razorpay) are replaced by a small local fake server.
 import assert from "node:assert/strict";
+import crypto from "node:crypto";
+import http from "node:http";
 import { after, before, describe, test } from "node:test";
+
+/* ---------- Fake IFSC + Razorpay API ---------- */
+const fake = { payments: {} }; // paymentId -> { order_id, amount, status, method }
+const fakeServer = http.createServer((req, res) => {
+  const send = (status, body) => {
+    res.writeHead(status, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(body));
+  };
+  let body = "";
+  req.on("data", (c) => (body += c));
+  req.on("end", () => {
+    const url = req.url;
+    if (url.startsWith("/ifsc/")) {
+      const code = url.slice(6);
+      return code === "SBIN0001234" || code === "HDFC0001234"
+        ? send(200, { BANK: code.startsWith("SBIN") ? "State Bank of India" : "HDFC Bank", BRANCH: "Main Branch", CITY: "AHMEDABAD", STATE: "GUJARAT", UPI: true })
+        : send(404, "Not Found");
+    }
+    if (url === "/rzp/orders" && req.method === "POST") {
+      const { amount } = JSON.parse(body);
+      return send(200, { id: `order_${crypto.randomBytes(6).toString("hex")}`, amount, currency: "INR" });
+    }
+    const m = url.match(/^\/rzp\/payments\/(.+)$/);
+    if (m && fake.payments[m[1]]) return send(200, { id: m[1], ...fake.payments[m[1]] });
+    send(404, { error: { description: "not found" } });
+  });
+});
+await new Promise((r) => fakeServer.listen(0, r));
+const fakeBase = `http://127.0.0.1:${fakeServer.address().port}`;
 
 process.env.NODE_ENV = "test";
 process.env.MONGODB_URI = "";
 process.env.SEED_DEMO = "true";
 process.env.OTP_DEV_MODE = "true";
+process.env.IFSC_API = `${fakeBase}/ifsc`;
+process.env.RAZORPAY_KEY_ID = "rzp_test_key";
+process.env.RAZORPAY_KEY_SECRET = "test_secret";
+process.env.RAZORPAY_WEBHOOK_SECRET = "hook_secret";
+process.env.RAZORPAY_API_BASE = `${fakeBase}/rzp`;
 
 const { createApp } = await import("../src/app.js");
 const { connectDb, disconnectDb } = await import("../src/db.js");
 const { ensureIndexes, seedAll } = await import("../src/seed.js");
+const { User } = await import("../src/models/index.js");
 
 let server;
 let base;
+const hmac = (secret, text) => crypto.createHmac("sha256", secret).update(text).digest("hex");
 
 async function call(method, path, { body, token, form } = {}) {
   const headers = {};
@@ -33,8 +72,12 @@ before(async () => {
 
 after(async () => {
   server?.close();
+  fakeServer.close();
   await disconnectDb();
 });
+
+const loginAs = async (identifier, password) => (await call("POST", "/auth/login", { body: { identifier, password } })).data.token;
+const adminLogin = async () => (await call("POST", "/auth/admin/login", { body: { username: "admin", password: "admin@123" } })).data.token;
 
 describe("market", () => {
   test("catalog, rates, history and summary", async () => {
@@ -273,5 +316,158 @@ describe("registration", () => {
     const res = await call("POST", "/auth/register", { form });
     assert.equal(res.status, 400);
     assert.ok(res.data.fields.selfie);
+  });
+});
+
+describe("security", () => {
+  test("PAN and bank account are encrypted in the database, readable by admin", async () => {
+    const raw = await User.findOne({ email: "test@gmail.com" }).lean();
+    assert.equal(raw.profile.pan, undefined);
+    assert.ok(raw.profile.panEnc.startsWith("v1:"));
+    assert.ok(!JSON.stringify(raw).includes("ABCDE1234F"));
+    assert.ok(!JSON.stringify(raw).includes("50100012344521"));
+    const admin = await adminLogin();
+    const d = await call("GET", "/admin/users/JAB-2026-004800", { token: admin });
+    assert.equal(d.data.user.profile.pan, "ABCDE1234F");
+    assert.equal(d.data.user.bank.accountNumber, "50100012344521");
+    assert.equal(d.data.user.profile.panEnc, undefined);
+    const me = await call("GET", "/me", { token: await loginAs("test@gmail.com", "123456") });
+    assert.equal(me.data.user.pan, "ABCDE••••F");
+  });
+
+  test("IFSC lookup", async () => {
+    assert.equal((await call("GET", "/auth/ifsc/SBIN0001234")).data.bank.bank, "State Bank of India");
+    assert.equal((await call("GET", "/auth/ifsc/SBIN0009999")).status, 404);
+  });
+
+  test("two-step login needs password to enable, then an OTP", async () => {
+    const token = await loginAs("meena.shah@example.com", "Demo@1234");
+    assert.equal((await call("PATCH", "/me/settings", { token, body: { twoFactor: true, password: "wrong" } })).status, 400);
+    const on = await call("PATCH", "/me/settings", { token, body: { twoFactor: true, password: "Demo@1234" } });
+    assert.equal(on.data.user.twoFactor, true);
+
+    const step1 = await call("POST", "/auth/login", { body: { identifier: "meena.shah@example.com", password: "Demo@1234" } });
+    assert.equal(step1.data.twoFactor, true);
+    assert.equal(step1.data.token, undefined);
+    assert.equal((await call("POST", "/auth/login/verify", { body: { challenge: step1.data.challenge, code: "000000" } })).status, 400);
+    const step2 = await call("POST", "/auth/login/verify", { body: { challenge: step1.data.challenge, code: "123456" } });
+    assert.equal(step2.status, 200);
+    assert.ok(step2.data.token);
+    await call("PATCH", "/me/settings", { token: step2.data.token, body: { twoFactor: false, password: "Demo@1234" } });
+  });
+
+  test("forgot password: OTP reset signs out old sessions", async () => {
+    const old = await loginAs("9909023415", "Demo@1234");
+    const forgot = await call("POST", "/auth/password/forgot", { body: { identifier: "9909023415" } });
+    assert.equal(forgot.status, 200);
+    // Unknown accounts get the same answer
+    assert.equal((await call("POST", "/auth/password/forgot", { body: { identifier: "nobody@example.com" } })).status, 200);
+    assert.equal((await call("POST", "/auth/password/reset", { body: { identifier: "9909023415", code: "123456", password: "weak" } })).status, 400);
+    const reset = await call("POST", "/auth/password/reset", { body: { identifier: "9909023415", code: "123456", password: "NewPass@2026" } });
+    assert.equal(reset.status, 200);
+    assert.equal((await call("GET", "/me", { token: old })).status, 401);
+    assert.ok(await loginAs("9909023415", "NewPass@2026"));
+  });
+
+  test("change password, reset PIN, log out everywhere", async () => {
+    let token = await loginAs("neha.desai@example.com", "Demo@1234");
+    assert.equal((await call("POST", "/me/password", { token, body: { currentPassword: "nope", newPassword: "Better@2026" } })).status, 400);
+    const ch = await call("POST", "/me/password", { token, body: { currentPassword: "Demo@1234", newPassword: "Better@2026" } });
+    assert.equal(ch.status, 200);
+    assert.equal((await call("GET", "/me", { token })).status, 401); // old token is dead
+    token = ch.data.token;
+    assert.equal((await call("GET", "/me", { token })).status, 200);
+
+    assert.equal((await call("POST", "/me/pin/otp", { token })).status, 200);
+    assert.equal((await call("POST", "/me/pin", { token, body: { password: "Better@2026", code: "123456", pin: "246810" } })).status, 200);
+    const buy = await call("POST", "/me/orders", { token, body: { product: "potato", city: "Surat", bags: 1, pin: "246810" } });
+    assert.equal(buy.status, 201, JSON.stringify(buy.data));
+
+    assert.equal((await call("POST", "/me/logout-all", { token })).status, 200);
+    assert.equal((await call("GET", "/me", { token })).status, 401);
+  });
+});
+
+describe("KYC review", () => {
+  const png = () => new Blob([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, ...Array(40).fill(0)])], { type: "image/png" });
+
+  test("reject needs a reason, user re-uploads, back to review, audit log records it", async () => {
+    const admin = await adminLogin();
+    assert.equal((await call("PATCH", "/admin/users/JAB-2026-004830", { token: admin, body: { kyc: "rejected" } })).status, 400);
+    const rej = await call("PATCH", "/admin/users/JAB-2026-004830", { token: admin, body: { kyc: "rejected", note: "PAN photo is blurry" } });
+    assert.equal(rej.data.user.kyc, "rejected");
+
+    const user = await loginAs("imran.qureshi@example.com", "Demo@1234");
+    const me = await call("GET", "/me", { token: user });
+    assert.equal(me.data.user.kycNote, "PAN photo is blurry");
+
+    const form = new FormData();
+    form.append("panCard", png(), "pan.png");
+    const up = await call("POST", "/me/kyc/documents", { token: user, form });
+    assert.equal(up.status, 200, JSON.stringify(up.data));
+    assert.equal(up.data.user.kyc, "pending");
+    assert.deepEqual(up.data.user.documents, ["panCard"]);
+
+    const log = await call("GET", "/admin/audit", { token: admin });
+    assert.ok(log.data.entries.some((e) => e.action === "kyc.rejected" && e.target === "JAB-2026-004830"));
+    assert.ok(log.data.entries.some((e) => e.action === "wallet.approve"));
+  });
+
+  test("verified users can't replace documents", async () => {
+    const form = new FormData();
+    form.append("panCard", png(), "pan.png");
+    const res = await call("POST", "/me/kyc/documents", { token: await loginAs("test@gmail.com", "123456"), form });
+    assert.equal(res.status, 409);
+  });
+});
+
+describe("online payments (Razorpay)", () => {
+  let token;
+  before(async () => {
+    token = await loginAs("vikram.singh@example.com", "Demo@1234");
+  });
+  const wallet = async () => (await call("GET", "/me", { token })).data.user.wallet.available;
+  const webhook = (event, signature) =>
+    fetch(`${base}/webhooks/razorpay`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Razorpay-Signature": signature },
+      body: event,
+    });
+
+  test("config tells the frontend payments are on", async () => {
+    assert.equal((await call("GET", "/config")).data.razorpayKeyId, "rzp_test_key");
+  });
+
+  test("checkout: bad signature refused, good one credits once", async () => {
+    const start = await wallet();
+    const order = await call("POST", "/me/wallet/payments", { token, body: { amount: 1500 } });
+    assert.equal(order.status, 201);
+    assert.equal(order.data.checkout.amount, 150000);
+    const orderId = order.data.checkout.orderId;
+    fake.payments.pay_one = { order_id: orderId, amount: 150000, status: "captured", method: "upi" };
+
+    const bad = await call("POST", "/me/wallet/payments/verify", { token, body: { orderId, paymentId: "pay_one", signature: "deadbeef" } });
+    assert.equal(bad.status, 400);
+
+    const signature = hmac("test_secret", `${orderId}|pay_one`);
+    const ok = await call("POST", "/me/wallet/payments/verify", { token, body: { orderId, paymentId: "pay_one", signature } });
+    assert.equal(ok.data.status, "paid");
+    assert.equal(ok.data.transaction.desc, "Razorpay · UPI");
+    assert.equal(await wallet(), start + 1500);
+
+    // Same payment again (browser retry + webhook) must not credit twice
+    await call("POST", "/me/wallet/payments/verify", { token, body: { orderId, paymentId: "pay_one", signature } });
+    const event = JSON.stringify({ event: "payment.captured", payload: { payment: { entity: { id: "pay_one", ...fake.payments.pay_one } } } });
+    assert.equal((await webhook(event, hmac("hook_secret", event))).status, 200);
+    assert.equal(await wallet(), start + 1500);
+  });
+
+  test("webhook alone credits a payment the browser never confirmed", async () => {
+    const start = await wallet();
+    const { orderId } = (await call("POST", "/me/wallet/payments", { token, body: { amount: 700 } })).data.checkout;
+    const event = JSON.stringify({ event: "payment.captured", payload: { payment: { entity: { id: "pay_two", order_id: orderId, amount: 70000, method: "card" } } } });
+    assert.equal((await webhook(event, "forged")).status, 400);
+    assert.equal((await webhook(event, hmac("hook_secret", event))).status, 200);
+    assert.equal(await wallet(), start + 700);
   });
 });

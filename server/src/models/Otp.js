@@ -2,6 +2,8 @@ import mongoose from "mongoose";
 
 const otpSchema = new mongoose.Schema(
   {
+    // register | login | reset-password | reset-pin
+    purpose: { type: String, required: true, default: "register" },
     channel: { type: String, enum: ["mobile", "email"], required: true },
     target: { type: String, required: true },
     codeHash: { type: String, required: true },
@@ -12,6 +14,6 @@ const otpSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-otpSchema.index({ channel: 1, target: 1 });
+otpSchema.index({ purpose: 1, channel: 1, target: 1 });
 
 export const Otp = mongoose.model("Otp", otpSchema);

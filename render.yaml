@@ -1,0 +1,59 @@
+# Render blueprint for the API (https://render.com/docs/blueprint-spec).
+# In Render: New → Blueprint → pick this repo. Fill in the "sync: false" values in the dashboard.
+services:
+  - type: web
+    name: jalaram-api
+    runtime: node
+    rootDir: server
+    buildCommand: npm ci --omit=dev
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: "22"
+      - key: JWT_SECRET
+        generateValue: true
+      - key: MONGODB_URI
+        sync: false
+      - key: DATA_KEY
+        sync: false # 64 hex characters; keep a safe copy, data can't be read without it
+      - key: ADMIN_USERNAME
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: CORS_ORIGIN
+        sync: false # e.g. https://jalaram-aloo-bhandar.vercel.app
+      - key: COLLECT_ACCOUNT_NAME
+        sync: false
+      - key: COLLECT_ACCOUNT_NUMBER
+        sync: false
+      - key: COLLECT_ACCOUNT_IFSC
+        sync: false
+      - key: COLLECT_ACCOUNT_BANK
+        sync: false
+      - key: COLLECT_UPI_ID
+        sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        sync: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: SMTP_FROM
+        sync: false
+      - key: SMS_PROVIDER
+        sync: false
+      - key: MSG91_AUTH_KEY
+        sync: false
+      - key: MSG91_TEMPLATE_ID
+        sync: false
+      - key: RAZORPAY_KEY_ID
+        sync: false
+      - key: RAZORPAY_KEY_SECRET
+        sync: false
+      - key: RAZORPAY_WEBHOOK_SECRET
+        sync: false

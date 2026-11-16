@@ -11,7 +11,15 @@ export function isLoggedIn() {
 }
 
 export async function login(identifier, password) {
-  const { token, user } = await api("/auth/login", { method: "POST", body: { identifier, password }, as: "none" });
+  const res = await api("/auth/login", { method: "POST", body: { identifier, password }, as: "none" });
+  // Two-step login: the caller must ask for the OTP and call verifyLogin()
+  if (res.twoFactor) return { twoFactor: true, challenge: res.challenge, sentTo: res.sentTo, devMode: res.devMode };
+  userSession.set({ token: res.token, user: res.user });
+  return { user: res.user };
+}
+
+export async function verifyLogin(challenge, code) {
+  const { token, user } = await api("/auth/login/verify", { method: "POST", body: { challenge, code }, as: "none" });
   userSession.set({ token, user });
   return user;
 }

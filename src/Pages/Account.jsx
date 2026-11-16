@@ -9,6 +9,10 @@ import "./Account.css";
 import Money from "../Components/Money";
 import Navbar from "../Components/Navbar";
 import { useMoney } from "../CurrencyContext";
+import { payOnline } from "../razorpay.js";
+import SellPanel from "./account/SellPanel.jsx";
+import SecurityPanel from "./account/SecurityPanel.jsx";
+import KycUpload from "./account/KycUpload.jsx";
 
 const tabs = [
   { key: "overview", label: "Overview" },
@@ -30,18 +34,13 @@ const filters = [
   { key: "charges", label: "Charges" },
 ];
 
-const methods = ["UPI", "Debit card", "Credit card", "Bank transfer"];
+// "Pay online" (Razorpay Checkout: UPI, cards, net banking) appears only when the server has it set up
+const ONLINE = "Pay online";
 const upiApps = [
   { name: "Google Pay", icon: gpayIcon, placeholder: "yourname@okaxis" },
   { name: "PhonePe", icon: phonepeIcon, placeholder: "yourname@ybl" },
   { name: "BHIM", icon: bhimIcon, placeholder: "yourname@upi" },
 ];
-const collectAccount = {
-  name: "Jalaram Aloo Bhandar Collections",
-  number: "50200012345678",
-  ifsc: "HDFC0001234",
-  bank: "HDFC Bank",
-};
 
 const quickAmounts = [500, 1000, 5000, 10000];
 
@@ -71,22 +70,16 @@ const fmtDate = (iso) =>
 const txnIcon = (t) =>
   ({ "Added money": "＋", Withdrawal: "↑", Bought: "↓", Sold: "↗", Charges: "₹" })[t.type] || "•";
 
-function cardBrandOf(num) {
-  if (/^4/.test(num)) return "Visa";
-  if (/^(5[1-5]|2[2-7])/.test(num)) return "Mastercard";
-  if (/^3[47]/.test(num)) return "Amex";
-  if (/^(60|65|81|82|508)/.test(num)) return "RuPay";
-  return "";
-}
-
 /* ---------- Page ---------- */
 async function fetchAccount() {
-  const [{ user }, { holdings }, { transactions }] = await Promise.all([
+  const [{ user }, { holdings }, { transactions }, config, { charges }] = await Promise.all([
     api("/me"),
     api("/me/holdings"),
     api("/me/transactions"),
+    api("/config", { as: "none" }),
+    api("/market/catalog", { as: "none" }),
   ]);
-  return { user, holdings, transactions };
+  return { user, holdings, transactions, config, charges };
 }
 
 function Account() {
@@ -104,7 +97,9 @@ function Account() {
   const [pin, setPin] = useState("");
   const [toast, setToast] = useState("");
   const [filter, setFilter] = useState("all");
-  const [twoFactor, setTwoFactor] = useState(true);
+  const [appConfig, setAppConfig] = useState(null); // GET /api/config
+  const [charges, setCharges] = useState(null);
+  const [selling, setSelling] = useState(null); // holding being sold
 
   // Add / withdraw panel
   const [panel, setPanel] = useState(null); // "add" | "withdraw" | null
@@ -113,13 +108,16 @@ function Account() {
   const [upiApp, setUpiApp] = useState("Google Pay");
   const [upiId, setUpiId] = useState("");
   const [utr, setUtr] = useState("");
-  const [card, setCard] = useState({ number: "", name: "", expiry: "", cvv: "" });
   const [panelError, setPanelError] = useState("");
 
-  const apply = useCallback(({ user, holdings: list, transactions }) => {
+  const applyHoldings = (list) => setHoldings(list.map((h) => ({ ...h, image: PRODUCT_IMAGES[h.product] })));
+  const apply = useCallback(({ user, holdings: list, transactions, config, charges: c }) => {
     setMe(user);
     setHoldings(list.map((h) => ({ ...h, image: PRODUCT_IMAGES[h.product] })));
     setTxns(transactions);
+    setAppConfig(config);
+    setCharges(c);
+    if (config.razorpayKeyId) setMethod(ONLINE);
     updateUser({ name: user.name, balance: user.wallet.available, kyc: user.kyc });
   }, []);
   const load = useCallback(
@@ -211,7 +209,7 @@ function Account() {
     setUpiId("");
     setUtr("");
     setPin("");
-    setCard({ number: "", name: "", expiry: "", cvv: "" });
+    setSelling(null);
   };
   const closePanel = () => setPanel(null);
   const setAmount = (v) => {
@@ -219,19 +217,41 @@ function Account() {
     setPanelError("");
   };
 
-  const cardBrand = cardBrandOf(card.number.replace(/\s/g, ""));
-  const formatCardNumber = (v) => {
-    const digits = v.replace(/\D/g, "").slice(0, 19);
-    setCard((c) => ({ ...c, number: digits.replace(/(.{4})/g, "$1 ").trim() }));
-    setPanelError("");
-  };
-  const formatExpiry = (v) => {
-    const digits = v.replace(/\D/g, "").slice(0, 4);
-    setCard((c) => ({ ...c, expiry: digits.length > 2 ? `${digits.slice(0, 2)}/${digits.slice(2)}` : digits }));
-    setPanelError("");
+  const selectedUpi = upiApps.find((a) => a.name === upiApp);
+  const onlineEnabled = Boolean(appConfig?.razorpayKeyId);
+  const methods = onlineEnabled ? [ONLINE, "UPI", "Bank transfer"] : ["UPI", "Bank transfer"];
+  const collectAccount = appConfig?.collectAccount;
+
+  // Refresh holdings + passbook after a sale
+  const onSold = async (res, message) => {
+    setSelling(null);
+    setMe((m) => ({ ...m, wallet: res.wallet }));
+    updateUser({ balance: res.wallet.available });
+    setToast(message);
+    const [{ holdings: list }, { transactions }] = await Promise.all([api("/me/holdings"), api("/me/transactions")]);
+    applyHoldings(list);
+    setTxns(transactions);
   };
 
-  const selectedUpi = upiApps.find((a) => a.name === upiApp);
+  const payByGateway = async (amt) => {
+    setBusy(true);
+    try {
+      const res = await payOnline(amt);
+      setMe((m) => ({ ...m, wallet: res.wallet }));
+      updateUser({ balance: res.wallet.available });
+      if (res.transaction) setTxns((list) => [res.transaction, ...list]);
+      setToast(
+        res.status === "paid"
+          ? `${inr(amt)} added to your wallet.`
+          : `Payment received. ${inr(amt)} will show in your wallet in a minute.`
+      );
+      closePanel();
+    } catch (err) {
+      setPanelError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
 
   // Send the request to the API, then refresh wallet and passbook
   const submit = async (path, body, message) => {
@@ -267,14 +287,9 @@ function Account() {
     }
 
     if (amt > 200000) return setPanelError("You can add up to ₹2,00,000 at a time.");
+    if (method === ONLINE) return payByGateway(amt);
     if (method === "UPI" && !/^[\w.-]{2,}@[a-zA-Z]{2,}$/.test(upiId.trim()))
       return setPanelError("Enter a valid UPI ID, like name@bank.");
-    if (method === "Debit card" || method === "Credit card") {
-      if (card.number.replace(/\s/g, "").length < 12) return setPanelError("Enter a valid card number.");
-      if (!card.name.trim()) return setPanelError("Enter the name on the card.");
-      if (!/^\d{2}\/\d{2}$/.test(card.expiry)) return setPanelError("Enter the expiry as MM/YY.");
-      if (card.cvv.length < 3) return setPanelError("Enter the CVV.");
-    }
     if (method === "Bank transfer" && utr.trim().length < 6)
       return setPanelError("Enter the UTR / reference number of your transfer.");
 
@@ -287,72 +302,6 @@ function Account() {
     );
   };
 
-  const cardForm = (
-    <>
-      <label htmlFor="cardno">Card number</label>
-      <div className="card-input">
-        <input
-          id="cardno"
-          type="text"
-          inputMode="numeric"
-          placeholder="1234 5678 9012 3456"
-          autoComplete="cc-number"
-          value={card.number}
-          onChange={(e) => formatCardNumber(e.target.value)}
-        />
-        {cardBrand && <span className="card-brand">{cardBrand}</span>}
-      </div>
-
-      <label htmlFor="cardname">Name on card</label>
-      <input
-        id="cardname"
-        type="text"
-        placeholder="As printed on the card"
-        autoComplete="cc-name"
-        value={card.name}
-        onChange={(e) => {
-          setCard((c) => ({ ...c, name: e.target.value }));
-          setPanelError("");
-        }}
-      />
-
-      <div className="card-row">
-        <div>
-          <label htmlFor="cardexp">Expiry</label>
-          <input
-            id="cardexp"
-            type="text"
-            inputMode="numeric"
-            placeholder="MM/YY"
-            autoComplete="cc-exp"
-            value={card.expiry}
-            onChange={(e) => formatExpiry(e.target.value)}
-          />
-        </div>
-        <div>
-          <label htmlFor="cardcvv">CVV</label>
-          <input
-            id="cardcvv"
-            type="password"
-            inputMode="numeric"
-            maxLength={cardBrand === "Amex" ? 4 : 3}
-            placeholder="•••"
-            autoComplete="cc-csc"
-            value={card.cvv}
-            onChange={(e) => {
-              setCard((c) => ({ ...c, cvv: e.target.value.replace(/\D/g, "") }));
-              setPanelError("");
-            }}
-          />
-        </div>
-      </div>
-      <span className="field-hint">
-        {method === "Credit card" && "Your card issuer may treat this as a cash or wallet load and add charges. "}
-        You will confirm with an OTP from your bank. Card details are not saved.
-      </span>
-    </>
-  );
-
   return (
     <>
   
@@ -364,10 +313,11 @@ function Account() {
         {me.kyc !== "verified" && (
           <div className="toast">
             {me.kyc === "rejected"
-              ? "Your KYC was rejected. Please contact support to fix your documents."
+              ? "Your KYC was rejected. See the reason below and upload corrected documents."
               : "Your KYC is under review. You can add money and trade once it is approved."}
           </div>
         )}
+        {me.kyc === "rejected" && <KycUpload user={me} onUser={setMe} onToast={setToast} />}
         {toast && (
           <div className="toast">
             ✓ {toast}
@@ -553,14 +503,20 @@ function Account() {
                       }}
                     />
                     <span className="field-hint">
-                      A payment request will be sent to your UPI app. Approve it there to finish.
+                      Pay this amount to {collectAccount?.upi ? <strong>{collectAccount.upi}</strong> : "our UPI ID"} from
+                      this app. We'll add it once we confirm it reached us.
                     </span>
                   </>
                 )}
 
-                {(method === "Debit card" || method === "Credit card") && cardForm}
+                {method === ONLINE && (
+                  <span className="field-hint">
+                    Pay with any UPI app, debit or credit card, or net banking in Razorpay's secure window. Money is
+                    added to your wallet as soon as the payment succeeds. We never see your card details.
+                  </span>
+                )}
 
-                {method === "Bank transfer" && (
+                {method === "Bank transfer" && collectAccount && (
                   <>
                     <div className="transfer-box">
                       <span className="kicker">SEND NEFT / RTGS / IMPS TO</span>
@@ -623,12 +579,16 @@ function Account() {
                   ? "Request withdrawal"
                   : method === "Bank transfer"
                   ? "I have sent the money"
+                  : method === ONLINE
+                  ? "Pay now"
                   : "Add money"}
               </button>
               <button type="button" className="btn outline" onClick={closePanel}>Cancel</button>
             </div>
             <p className="muted small">
-              Deposits are added after our team confirms the payment. Wallet transactions are settled in INR.
+              {method === ONLINE && panel === "add"
+                ? "Online payments are added instantly. Wallet transactions are settled in INR."
+                : "Manual deposits are added after our team confirms the payment. Wallet transactions are settled in INR."}
             </p>
           </section>
         )}
@@ -651,7 +611,6 @@ function Account() {
                   <span className="kicker">TODAY'S MANDI RATES</span>
                   <h2>What your bags are worth now</h2>
                 </div>
-                <span className="muted small">Illustrative</span>
               </div>
               {holdings.length === 0 && <p className="empty">Buy bags on the Prices page to track their value here.</p>}
               <div className="rate-grid">
@@ -729,6 +688,16 @@ function Account() {
                     <i style={{ width: `${share(h)}%` }} data-c={h.name}></i>
                   </div>
                   <small className="muted">{share(h).toFixed(0)}% of your godown value</small>
+                  {me.kyc === "verified" && charges && (
+                    <div className="panel-actions">
+                      <button type="button" className="btn outline" onClick={() => { closePanel(); setSelling(h); }}>
+                        Sell bags
+                      </button>
+                    </div>
+                  )}
+                  {selling?.id === h.id && (
+                    <SellPanel holding={h} charges={charges} onClose={() => setSelling(null)} onSold={onSold} />
+                  )}
                 </article>
               ))}
             </div>
@@ -784,31 +753,9 @@ function Account() {
                 <div><dt>Nominee</dt><dd>{user.nominee}</dd></div>
               </dl>
             </article>
+            {me.kyc === "pending" && <KycUpload user={me} onUser={setMe} onToast={setToast} />}
 
-            <article className="info-card wide">
-              <h3>Security</h3>
-              <dl>
-                <div>
-                  <dt>Password</dt>
-                  <dd>•••••••••• <button type="button" className="text-btn">Change</button></dd>
-                </div>
-                <div>
-                  <dt>Transaction PIN</dt>
-                  <dd>{user.pinLocked ? "Locked for a few minutes (too many wrong tries)" : "Set"} <button type="button" className="text-btn">Reset</button></dd>
-                </div>
-                <div><dt>Last login</dt><dd>{user.lastLogin}</dd></div>
-                <div>
-                  <dt>Two-step verification</dt>
-                  <dd>
-                    <label className="switch">
-                      <input type="checkbox" checked={twoFactor} onChange={(e) => setTwoFactor(e.target.checked)} />
-                      <i></i>
-                      <span>{twoFactor ? "On" : "Off"}</span>
-                    </label>
-                  </dd>
-                </div>
-              </dl>
-            </article>
+            <SecurityPanel user={user} onUser={setMe} onToast={setToast} />
           </section>
         )}
 

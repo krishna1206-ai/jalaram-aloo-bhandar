@@ -72,7 +72,7 @@ export async function requestDeposit(user, body) {
 export async function requestWithdrawal(user, body) {
   assertCanTransact(user);
   const amountPaise = parseAmount(body.amount);
-  if (!user.bank?.accountNumber) throw badRequest("Add a bank account before withdrawing.");
+  if (!user.bank?.accountLast4) throw badRequest("Add a bank account before withdrawing.");
   await verifyPin(user, body.pin);
 
   return withTransaction(async (session) => {
