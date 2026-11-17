@@ -28,3 +28,4 @@ build
 
 # Local development database
 server/.data
+.neon

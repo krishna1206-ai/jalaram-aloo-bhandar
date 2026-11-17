@@ -39,12 +39,21 @@ async function ensureDatabase(url) {
   }
 }
 
+// Hosted databases (Neon, Supabase) give "sslmode=require". Ask for full certificate checks explicitly,
+// which is what pg does today and keeps doing after pg v9 changes the meaning of "require".
+function strictSsl(url) {
+  const u = new URL(url);
+  if (["require", "prefer", "verify-ca"].includes(u.searchParams.get("sslmode"))) u.searchParams.set("sslmode", "verify-full");
+  return u.toString();
+}
+
 export async function connectDb(url = config.databaseUrl) {
   if (!url) {
     throw new Error(
       "DATABASE_URL is not set. Add it to server/.env, e.g. DATABASE_URL=postgres://postgres:PASSWORD@localhost:5432/jalaram"
     );
   }
+  url = strictSsl(url);
   await ensureDatabase(url);
   pool = new pg.Pool({ connectionString: url, max: 10 });
   pool.on("error", (err) => console.error("PostgreSQL connection error", err.message));

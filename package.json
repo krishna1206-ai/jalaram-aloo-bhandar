@@ -12,6 +12,8 @@
     "api:test": "npm --prefix server test"
   },
   "dependencies": {
+    "@neon/config": "^1.14.1",
+    "@neon/env": "^2.1.4",
     "bootstrap": "^5.3.8",
     "leaflet": "^1.9.4",
     "react": "^19.3.1",
