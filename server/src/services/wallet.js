@@ -1,7 +1,7 @@
 import { withTransaction } from "../db.js";
 import { HttpError, badRequest } from "../errors.js";
 import { MAX_DEPOSIT, MIN_WALLET_AMOUNT, toPaise, toRupees } from "../money.js";
-import { Transaction, User, WalletRequest, newRequestId, newTxnId } from "../models/index.js";
+import { getUserById, insertRow, newRequestId, newTxnId } from "../records.js";
 import { assertCanTransact, verifyPin } from "./security.js";
 import { bankLabel } from "./views.js";
 
@@ -34,9 +34,6 @@ export async function requestDeposit(user, body) {
   } else if (body.method === "Bank transfer") {
     const utr = String(body.utr ?? "").trim().toUpperCase();
     if (!/^[A-Z0-9]{6,30}$/.test(utr)) throw badRequest("Enter the UTR / reference number of your transfer.", { utr: "Invalid." });
-    if (await WalletRequest.exists({ type: "in", reference: utr, status: { $ne: "rejected" } })) {
-      throw badRequest("This UTR has already been submitted.", { utr: "Already used." });
-    }
     method = `Bank transfer · UTR ${utr}`;
     reference = utr;
   } else if (body.method === "Debit card" || body.method === "Credit card") {
@@ -45,25 +42,23 @@ export async function requestDeposit(user, body) {
     throw badRequest("Choose how you want to pay.", { method: "Required." });
   }
 
-  return withTransaction(async (session) => {
-    const [req] = await WalletRequest.create(
-      [{ reqId: await newRequestId(session), user: user._id, type: "in", amountPaise, method, reference }],
-      { session }
-    );
-    const [txn] = await Transaction.create(
-      [{
-        txnId: await newTxnId(session),
-        user: user._id,
-        type: "Added money",
-        desc: body.method === "UPI" ? `UPI · ${UPI_APPS.includes(body.upiApp) ? body.upiApp : "UPI"}` : "Bank transfer",
-        amountPaise,
-        status: "Pending",
-        walletRequest: req._id,
-      }],
-      { session }
-    );
-    req.txn = txn._id;
-    await req.save({ session });
+  return withTransaction(async (tx) => {
+    if (body.method === "Bank transfer") {
+      const dup = await tx.query("SELECT 1 FROM wallet_requests WHERE type = 'in' AND reference = $1 AND status <> 'rejected'", [reference]);
+      if (dup.rowCount) throw badRequest("This UTR has already been submitted.", { utr: "Already used." });
+    }
+    const req = await insertRow(tx, "wallet_requests", {
+      req_id: await newRequestId(tx), user_id: user.id, type: "in", amount_paise: amountPaise, method, reference,
+    });
+    const txn = await insertRow(tx, "transactions", {
+      txn_id: await newTxnId(tx),
+      user_id: user.id,
+      type: "Added money",
+      descr: body.method === "UPI" ? `UPI · ${UPI_APPS.includes(body.upiApp) ? body.upiApp : "UPI"}` : "Bank transfer",
+      amount_paise: amountPaise,
+      status: "Pending",
+      wallet_request_id: req.id,
+    });
     return { request: req, txn };
   });
 }
@@ -75,63 +70,62 @@ export async function requestWithdrawal(user, body) {
   if (!user.bank?.accountLast4) throw badRequest("Add a bank account before withdrawing.");
   await verifyPin(user, body.pin);
 
-  return withTransaction(async (session) => {
-    const moved = await User.updateOne(
-      { _id: user._id, availablePaise: { $gte: amountPaise } },
-      { $inc: { availablePaise: -amountPaise, onHoldPaise: amountPaise } },
-      { session }
+  return withTransaction(async (tx) => {
+    const moved = await tx.query(
+      `UPDATE users SET available_paise = available_paise - $2, on_hold_paise = on_hold_paise + $2
+       WHERE id = $1 AND available_paise >= $2`,
+      [user.id, amountPaise]
     );
-    if (!moved.modifiedCount) throw badRequest("You can't withdraw more than your available balance.", { amount: "Too large." });
+    if (!moved.rowCount) throw badRequest("You can't withdraw more than your available balance.", { amount: "Too large." });
 
-    const [req] = await WalletRequest.create(
-      [{ reqId: await newRequestId(session), user: user._id, type: "out", amountPaise, method: `Bank · ${bankLabel(user.bank)}` }],
-      { session }
-    );
-    const [txn] = await Transaction.create(
-      [{
-        txnId: await newTxnId(session),
-        user: user._id,
-        type: "Withdrawal",
-        desc: `To ${bankLabel(user.bank)}`,
-        amountPaise: -amountPaise,
-        status: "Pending",
-        walletRequest: req._id,
-      }],
-      { session }
-    );
-    req.txn = txn._id;
-    await req.save({ session });
+    const req = await insertRow(tx, "wallet_requests", {
+      req_id: await newRequestId(tx), user_id: user.id, type: "out", amount_paise: amountPaise, method: `Bank · ${bankLabel(user.bank)}`,
+    });
+    const txn = await insertRow(tx, "transactions", {
+      txn_id: await newTxnId(tx),
+      user_id: user.id,
+      type: "Withdrawal",
+      descr: `To ${bankLabel(user.bank)}`,
+      amount_paise: -amountPaise,
+      status: "Pending",
+      wallet_request_id: req.id,
+    });
     return { request: req, txn };
   });
 }
 
 export async function decideRequest(admin, reqId, approve) {
-  return withTransaction(async (session) => {
-    const req = await WalletRequest.findOne({ reqId }).session(session);
-    if (!req) throw new HttpError(404, "Wallet request not found.");
-    if (req.status !== "pending") throw new HttpError(409, `This request was already ${req.status}.`);
-
-    const user = await User.findById(req.user).session(session);
-    const amt = req.amountPaise;
-
-    if (req.type === "in" && approve) {
-      await User.updateOne({ _id: req.user }, { $inc: { availablePaise: amt } }, { session });
-    } else if (req.type === "out") {
-      // The money was put on hold when the user asked. Approve pays it out; reject gives it back.
-      const inc = approve ? { onHoldPaise: -amt } : { onHoldPaise: -amt, availablePaise: amt };
-      const done = await User.updateOne({ _id: req.user, onHoldPaise: { $gte: amt } }, { $inc: inc }, { session });
-      if (!done.modifiedCount) throw new HttpError(409, `Can't settle: ${user?.name} has less than ${inr(amt)} on hold.`);
+  return withTransaction(async (tx) => {
+    // Claim the request first: only one admin can move it out of "pending"
+    const status = approve ? "approved" : "rejected";
+    const { rows } = await tx.query(
+      `UPDATE wallet_requests SET status = $2, decided_at = now(), decided_by = $3
+       WHERE req_id = $1 AND status = 'pending' RETURNING *`,
+      [reqId, status, admin.id]
+    );
+    const req = rows[0];
+    if (!req) {
+      const exists = await tx.query("SELECT status FROM wallet_requests WHERE req_id = $1", [reqId]);
+      if (!exists.rowCount) throw new HttpError(404, "Wallet request not found.");
+      throw new HttpError(409, `This request was already ${exists.rows[0].status}.`);
     }
 
-    const status = approve ? "approved" : "rejected";
-    const claimed = await WalletRequest.updateOne(
-      { _id: req._id, status: "pending" },
-      { status, decidedAt: new Date(), decidedBy: admin._id },
-      { session }
-    );
-    if (!claimed.modifiedCount) throw new HttpError(409, "This request was just decided by someone else.");
-    await Transaction.updateOne({ _id: req.txn }, { status: approve ? "Completed" : "Rejected" }, { session });
+    const amt = req.amount_paise;
+    if (req.type === "in" && approve) {
+      await tx.query("UPDATE users SET available_paise = available_paise + $2 WHERE id = $1", [req.user_id, amt]);
+    } else if (req.type === "out") {
+      // The money was put on hold when the user asked. Approve pays it out; reject gives it back.
+      const done = await tx.query(
+        approve
+          ? "UPDATE users SET on_hold_paise = on_hold_paise - $2 WHERE id = $1 AND on_hold_paise >= $2"
+          : "UPDATE users SET on_hold_paise = on_hold_paise - $2, available_paise = available_paise + $2 WHERE id = $1 AND on_hold_paise >= $2",
+        [req.user_id, amt]
+      );
+      if (!done.rowCount) throw new HttpError(409, `Can't settle: less than ${inr(amt)} is on hold for this user.`);
+    }
+    await tx.query("UPDATE transactions SET status = $2 WHERE wallet_request_id = $1", [req.id, approve ? "Completed" : "Rejected"]);
 
-    return { request: { ...req.toObject(), status }, user };
+    const user = await getUserById(tx, req.user_id);
+    return { request: req, user };
   });
 }

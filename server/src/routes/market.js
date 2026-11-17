@@ -1,9 +1,9 @@
 import { Router } from "express";
 import { PRODUCTS, cityByName, productByKey, publicCatalog } from "../catalog.js";
+import { db } from "../db.js";
 import { HttpError } from "../errors.js";
 import { CHARGES, MAX_BAGS } from "../money.js";
-import { Rate } from "../models/index.js";
-import { publicRate } from "../services/rates.js";
+import { dayStart, historyOf, listRates, publicRate } from "../services/rates.js";
 
 // Public price data: no login needed
 const router = Router();
@@ -14,35 +14,27 @@ router.get("/catalog", (req, res) => {
 
 // GET /api/market/rates?city=Ahmedabad  or  ?product=potato  (both optional)
 router.get("/rates", async (req, res) => {
-  const filter = {};
-  if (req.query.city) {
-    if (!cityByName(req.query.city)) throw new HttpError(404, "Unknown city.");
-    filter.city = req.query.city;
-  }
-  if (req.query.product) {
-    if (!productByKey(req.query.product)) throw new HttpError(404, "Unknown product.");
-    filter.product = req.query.product;
-  }
-  const rates = await Rate.find(filter).slice("history", -7).lean();
-  res.json({ rates: rates.map(publicRate) });
+  const city = req.query.city ? String(req.query.city) : null;
+  const product = req.query.product ? String(req.query.product) : null;
+  if (city && !cityByName(city)) throw new HttpError(404, "Unknown city.");
+  if (product && !productByKey(product)) throw new HttpError(404, "Unknown product.");
+  res.json({ rates: (await listRates({ city, product })).map(publicRate) });
 });
 
 // Daily candles for the price chart: GET /api/market/history?city=Ahmedabad&product=potato
 router.get("/history", async (req, res) => {
-  const { city, product } = req.query;
-  const rate = await Rate.findOne({ city: String(city), product: String(product) }, { history: 1 }).lean();
-  if (!rate) throw new HttpError(404, "No price history for that city and product.");
-  res.json({
-    candles: rate.history.map((c) => ({ t: new Date(c.t).getTime(), o: c.o, h: c.h, l: c.l, c: c.c, v: c.v })),
-  });
+  const rows = await historyOf(String(req.query.product), String(req.query.city));
+  if (!rows.length) throw new HttpError(404, "No price history for that city and product.");
+  res.json({ candles: rows.map((c) => ({ t: dayStart(c.day).getTime(), o: c.o, h: c.h, l: c.l, c: c.c, v: c.v })) });
 });
 
 // National average per product, for the home page watchlist
 router.get("/summary", async (req, res) => {
-  const rows = await Rate.aggregate([
-    { $group: { _id: "$product", today: { $avg: "$today" }, yesterday: { $avg: "$yesterday" }, cities: { $sum: 1 }, updatedAt: { $max: "$updatedAt" } } },
-  ]);
-  const byKey = Object.fromEntries(rows.map((r) => [r._id, r]));
+  const { rows } = await db.query(
+    `SELECT product, AVG(today) AS today, AVG(yesterday) AS yesterday, COUNT(*)::int AS cities, MAX(updated_at) AS updated_at
+     FROM rates GROUP BY product`
+  );
+  const byKey = Object.fromEntries(rows.map((r) => [r.product, r]));
   res.json({
     summary: PRODUCTS.filter((p) => byKey[p.key]).map((p) => {
       const r = byKey[p.key];
@@ -51,7 +43,7 @@ router.get("/summary", async (req, res) => {
         price: Math.round(r.today),
         change: Math.round(((r.today - r.yesterday) / r.yesterday) * 1000) / 10,
         cities: r.cities,
-        updatedAt: r.updatedAt,
+        updatedAt: r.updated_at,
       };
     }),
   });

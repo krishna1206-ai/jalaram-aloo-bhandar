@@ -1,6 +1,6 @@
 import { CITIES, PRODUCTS } from "../catalog.js";
+import { db, withTransaction } from "../db.js";
 import { badRequest } from "../errors.js";
-import { Rate } from "../models/index.js";
 
 const DAY = 24 * 60 * 60 * 1000;
 const HISTORY_DAYS = 366;
@@ -11,9 +11,9 @@ export const dayStart = (key) => new Date(`${key}T00:00:00+05:30`);
 
 const round2 = (n) => Math.round(n * 100) / 100;
 
-// Current rate as the Explore page shows it
+// Current rate as the Explore page shows it. `trend` = last closing prices, oldest first.
 export function publicRate(r) {
-  const closes = (r.history || []).map((c) => c.c);
+  const trend = (r.trend || []).map(Number);
   return {
     product: r.product,
     city: r.city,
@@ -23,10 +23,32 @@ export function publicRate(r) {
     min: r.low,
     max: r.high,
     arrivals: r.arrivals,
-    trend: closes.length ? closes.slice(-7) : [r.today],
+    trend: trend.length ? trend : [r.today],
     day: r.day,
-    updatedAt: r.updatedAt,
+    updatedAt: r.updated_at,
   };
+}
+
+// Rates (optionally for one city and/or product) with their last 7 closing prices
+export async function listRates({ city = null, product = null } = {}) {
+  const { rows } = await db.query(
+    `SELECT r.*,
+            ARRAY(SELECT c FROM (SELECT c, day FROM rate_history h WHERE h.rate_id = r.id ORDER BY day DESC LIMIT 7) x ORDER BY day) AS trend
+     FROM rates r
+     WHERE ($1::text IS NULL OR r.city = $1) AND ($2::text IS NULL OR r.product = $2)
+     ORDER BY r.product, r.city`,
+    [city, product]
+  );
+  return rows;
+}
+
+export async function historyOf(product, city) {
+  const { rows } = await db.query(
+    `SELECT h.day, h.o, h.h, h.l, h.c, h.v FROM rate_history h JOIN rates r ON r.id = h.rate_id
+     WHERE r.product = $1 AND r.city = $2 ORDER BY h.day`,
+    [product, city]
+  );
+  return rows;
 }
 
 // Admin sets today's rate for one product in one city. A new day rolls today → yesterday.
@@ -40,22 +62,28 @@ export async function setRate(product, city, input) {
   if (!(low <= today && today <= high)) throw badRequest("Today's rate must be between the low and the high.");
   if (!Number.isInteger(arrivals) || arrivals < 0) throw badRequest("Arrivals must be a whole number of bags.");
 
-  const rate = await Rate.findOne({ product, city });
-  if (!rate) throw badRequest("Unknown product or city.");
+  return withTransaction(async (tx) => {
+    const { rows } = await tx.query("SELECT * FROM rates WHERE product = $1 AND city = $2 FOR UPDATE", [product, city]);
+    const rate = rows[0];
+    if (!rate) throw badRequest("Unknown product or city.");
 
-  const key = dayKey();
-  if (rate.day !== key) {
-    rate.yesterday = rate.today;
-    rate.day = key;
-    rate.history.push({ t: dayStart(key), o: rate.yesterday, h: Math.max(high, rate.yesterday), l: Math.min(low, rate.yesterday), c: today, v: arrivals });
-    if (rate.history.length > HISTORY_DAYS + 30) rate.history.splice(0, rate.history.length - HISTORY_DAYS);
-  } else {
-    const last = rate.history.at(-1);
-    if (last) Object.assign(last, { h: Math.max(high, last.o), l: Math.min(low, last.o), c: today, v: arrivals });
-  }
-  Object.assign(rate, { today, low, high, arrivals });
-  await rate.save();
-  return rate;
+    const key = dayKey();
+    const newDay = rate.day !== key;
+    const yesterday = newDay ? rate.today : rate.yesterday;
+    // Today's candle opens at yesterday's close
+    await tx.query(
+      `INSERT INTO rate_history (rate_id, day, o, h, l, c, v) VALUES ($1, $2, $3, $4, $5, $6, $7)
+       ON CONFLICT (rate_id, day) DO UPDATE SET h = EXCLUDED.h, l = EXCLUDED.l, c = EXCLUDED.c, v = EXCLUDED.v`,
+      [rate.id, key, yesterday, Math.max(high, yesterday), Math.min(low, yesterday), today, arrivals]
+    );
+    await tx.query("DELETE FROM rate_history WHERE rate_id = $1 AND day < $2::date - $3::int", [rate.id, key, HISTORY_DAYS]);
+    const updated = await tx.query(
+      `UPDATE rates SET today = $2, yesterday = $3, low = $4, high = $5, arrivals = $6, day = $7, updated_at = now()
+       WHERE id = $1 RETURNING *`,
+      [rate.id, today, yesterday, low, high, arrivals, key]
+    );
+    return updated.rows[0];
+  });
 }
 
 /* ---------- Seeding ---------- */
@@ -107,7 +135,7 @@ function buildHistory(r, seed) {
     const last = i === closes.length - 1;
     const o = i ? closes[i - 1] : c;
     return {
-      t: new Date(todayStart - (closes.length - 1 - i) * DAY),
+      day: dayKey(new Date(todayStart - (closes.length - 1 - i) * DAY + 6 * 60 * 60 * 1000)),
       o: round2(o),
       h: round2(last ? Math.max(r.high, o) : Math.max(o, c) * (1 + rnd() * 0.012)),
       l: round2(last ? Math.min(r.low, o) : Math.min(o, c) * (1 - rnd() * 0.012)),
@@ -117,34 +145,50 @@ function buildHistory(r, seed) {
   });
 }
 
+// Starting rates so the site isn't empty. Admins replace them with real rates every day.
 export async function seedRates({ force = false } = {}) {
-  if (!force && (await Rate.estimatedDocumentCount()) > 0) return 0;
-  if (force) await Rate.deleteMany({});
+  if (!force && (await db.query("SELECT 1 FROM rates LIMIT 1")).rowCount) return 0;
   const day = dayKey();
-  const docs = [];
-  for (const p of PRODUCTS) {
-    for (const c of CITIES) {
-      const rnd = seededRandom(`${p.key}|${c.name}|today`);
-      let r;
-      const fixed = p.key === "potato" && POTATO_RATES[c.name];
-      if (fixed) {
-        const [today, change, low, high, arrivals] = fixed;
-        r = { today, yesterday: Math.round(today / (1 + change / 100)), low, high, arrivals };
-      } else {
-        const today = Math.round(p.base * c.f * (0.96 + rnd() * 0.08));
-        r = {
-          today,
-          yesterday: Math.round(today / (1 + (rnd() - 0.5) * 0.05)),
-          low: Math.round(today * (0.9 + rnd() * 0.03)),
-          high: Math.round(today * (1.06 + rnd() * 0.04)),
-          arrivals: Math.round(1300 + rnd() * 3100),
-        };
+  return withTransaction(async (tx) => {
+    if (force) await tx.query("DELETE FROM rates");
+    let count = 0;
+    for (const p of PRODUCTS) {
+      for (const c of CITIES) {
+        const rnd = seededRandom(`${p.key}|${c.name}|today`);
+        let r;
+        const fixed = p.key === "potato" && POTATO_RATES[c.name];
+        if (fixed) {
+          const [today, change, low, high, arrivals] = fixed;
+          r = { today, yesterday: Math.round(today / (1 + change / 100)), low, high, arrivals };
+        } else {
+          const today = Math.round(p.base * c.f * (0.96 + rnd() * 0.08));
+          r = {
+            today,
+            yesterday: Math.round(today / (1 + (rnd() - 0.5) * 0.05)),
+            low: Math.round(today * (0.9 + rnd() * 0.03)),
+            high: Math.round(today * (1.06 + rnd() * 0.04)),
+            arrivals: Math.round(1300 + rnd() * 3100),
+          };
+        }
+        r.day = day;
+        const { rows } = await tx.query(
+          `INSERT INTO rates (product, city, today, yesterday, low, high, arrivals, day)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
+          [p.key, c.name, r.today, r.yesterday, r.low, r.high, r.arrivals, day]
+        );
+        const candles = buildHistory(r, `${p.key}|${c.name}|history`);
+        // One multi-row insert per rate (366 rows)
+        const values = [];
+        const params = [rows[0].id];
+        for (const k of candles) {
+          const b = params.length;
+          values.push(`($1, $${b + 1}, $${b + 2}, $${b + 3}, $${b + 4}, $${b + 5}, $${b + 6})`);
+          params.push(k.day, k.o, k.h, k.l, k.c, k.v);
+        }
+        await tx.query(`INSERT INTO rate_history (rate_id, day, o, h, l, c, v) VALUES ${values.join(", ")} ON CONFLICT DO NOTHING`, params);
+        count++;
       }
-      r = { product: p.key, city: c.name, day, ...r };
-      r.history = buildHistory(r, `${p.key}|${c.name}|history`);
-      docs.push(r);
     }
-  }
-  await Rate.insertMany(docs);
-  return docs.length;
+    return count;
+  });
 }

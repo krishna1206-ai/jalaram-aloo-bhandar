@@ -1,11 +1,10 @@
 import { Router } from "express";
 import rateLimit from "express-rate-limit";
 import { config } from "../config.js";
-import { withTransaction } from "../db.js";
+import { db, withTransaction } from "../db.js";
 import { HttpError, badRequest, validator } from "../errors.js";
-import { Admin, User, accountFields, newClientId, panFields, panLookup } from "../models/index.js";
+import { accountColumns, getUser, getUserById, insertRow, newClientId, panColumns, panHash, userFromRow } from "../records.js";
 import { IFSC_RE, lookupIfsc } from "../services/bank.js";
-import { deleteFiles } from "../services/files.js";
 import { checkDocs, kycUpload, storeDocs } from "../services/kyc.js";
 import { checkTarget, normalizeTarget, sendOtp, verifyOtp } from "../services/otp.js";
 import { checkSecret, hashSecret, passwordProblem } from "../services/security.js";
@@ -53,9 +52,9 @@ const parseDate = (v) => {
 export function findByIdentifier(identifier) {
   const id = str(identifier, 100).toLowerCase();
   if (!id) return null;
-  if (id.includes("@")) return User.findOne({ email: id });
+  if (id.includes("@")) return getUser(db, "email = $1", [id]);
   const digits = id.replace(/\D/g, "");
-  return User.findOne({ mobile: digits.length === 12 && digits.startsWith("91") ? digits.slice(2) : digits });
+  return getUser(db, "mobile = $1", [digits.length === 12 && digits.startsWith("91") ? digits.slice(2) : digits]);
 }
 
 const maskTarget = (channel, t) =>
@@ -67,8 +66,8 @@ router.post("/otp/send", otpLimit, async (req, res) => {
   const channel = req.body?.channel;
   const target = normalizeTarget(channel, req.body?.target);
   checkTarget(channel, target);
-  const taken = await User.exists(channel === "email" ? { email: target } : { mobile: target });
-  if (taken) throw new HttpError(409, `This ${channel === "email" ? "email" : "mobile number"} is already registered. Please log in.`);
+  const taken = await db.query(`SELECT 1 FROM users WHERE ${channel === "email" ? "email" : "mobile"} = $1`, [target]);
+  if (taken.rowCount) throw new HttpError(409, `This ${channel === "email" ? "email" : "mobile number"} is already registered. Please log in.`);
   await sendOtp("register", channel, target);
   res.json({ sent: true, ...devFlag() });
 });
@@ -171,64 +170,70 @@ router.post("/register", registerLimit, kycUpload, async (req, res) => {
     if (err.status === 400) throw err;
   }
 
-  if (await User.exists({ $or: [{ email }, { mobile }, panLookup(pan)] })) {
-    throw new HttpError(409, "An account with this mobile, email or PAN already exists. Please log in.");
-  }
+  const dup = await db.query("SELECT 1 FROM users WHERE email = $1 OR mobile = $2 OR pan_hash = $3", [email, mobile, panHash(pan)]);
+  if (dup.rowCount) throw new HttpError(409, "An account with this mobile, email or PAN already exists. Please log in.");
 
   const [passwordHash, pinHash] = await Promise.all([hashSecret(b.password), hashSecret(b.pin)]);
-  const { documents, savedIds } = await storeDocs(files, docKeys, mobile);
+  const lat = Number(b.lat);
+  const lng = Number(b.lng);
+  const hasPoint = b.lat !== undefined && b.lat !== "" && b.lng !== "" && Number.isFinite(lat) && Number.isFinite(lng);
 
-  try {
-    const lat = Number(b.lat);
-    const lng = Number(b.lng);
-    const hasPoint = b.lat !== "" && b.lng !== "" && Number.isFinite(lat) && Number.isFinite(lng);
-
-    const user = await withTransaction(async (session) => {
-      const [created] = await User.create(
-        [{
-          clientId: await newClientId(session),
-          name: fullName,
-          email,
-          mobile,
-          passwordHash,
-          pinHash,
-          profile: {
-            ...panFields(pan), dob, gender: str(b.gender), maritalStatus: str(b.maritalStatus), fatherName: str(b.fatherName, 100),
-            occupation: str(b.occupation), income: str(b.income), experience: str(b.experience), pep: b.pep === "yes", taxResident: true,
-          },
-          address: {
-            aadhaarLast4: str(b.aadhaarLast4), line: str(b.address, 300), city: str(b.city, 80), pincode: str(b.pincode), state: str(b.state, 80),
-            ...(hasPoint && { lat, lng }),
-          },
-          bank: {
-            accountHolder: str(b.accountHolder, 100), ...accountFields(accountNumber), ifsc, accountType: str(b.accountType), upi,
-            ...(branchInfo && { bankName: branchInfo.bank, branch: branchInfo.branch }),
-          },
-          nominee: nomineeName
-            ? { name: nomineeName, relation: str(b.nomineeRelation), dob: nomineeDob, guardianName: str(b.guardianName, 100), guardianRelation: str(b.guardianRelation) }
-            : undefined,
-          documents,
-          consents: { riskAck: true, dataConsent: true, terms: true, marketing: yes(b.marketing), at: new Date() },
-          lastLoginAt: new Date(),
-        }],
-        { session }
-      );
-      return created;
+  // The user and their documents are saved together: either both or neither
+  const user = await withTransaction(async (tx) => {
+    const row = await insertRow(tx, "users", {
+      client_id: await newClientId(tx),
+      name: fullName,
+      email,
+      mobile,
+      password_hash: passwordHash,
+      pin_hash: pinHash,
+      ...panColumns(pan),
+      dob: str(b.dob),
+      gender: str(b.gender),
+      marital_status: str(b.maritalStatus),
+      father_name: str(b.fatherName, 100),
+      occupation: str(b.occupation),
+      income: str(b.income),
+      experience: str(b.experience),
+      pep: b.pep === "yes",
+      tax_resident: true,
+      aadhaar_last4: str(b.aadhaarLast4),
+      address_line: str(b.address, 300),
+      city: str(b.city, 80),
+      pincode: str(b.pincode),
+      state: str(b.state, 80),
+      lat: hasPoint ? lat : undefined,
+      lng: hasPoint ? lng : undefined,
+      bank_holder: str(b.accountHolder, 100),
+      ...accountColumns(accountNumber),
+      ifsc,
+      bank_name: branchInfo?.bank,
+      bank_branch: branchInfo?.branch,
+      account_type: str(b.accountType),
+      upi: upi || undefined,
+      nominee_name: nomineeName || undefined,
+      nominee_relation: nomineeName ? str(b.nomineeRelation) : undefined,
+      nominee_dob: nomineeName ? str(b.nomineeDob) : undefined,
+      guardian_name: nomineeName ? str(b.guardianName, 100) || undefined : undefined,
+      guardian_relation: nomineeName ? str(b.guardianRelation) || undefined : undefined,
+      consent_risk: true,
+      consent_data: true,
+      consent_terms: true,
+      consent_marketing: yes(b.marketing),
+      consent_at: new Date(),
+      last_login_at: new Date(),
     });
+    await storeDocs(tx, row.id, files, docKeys);
+    return userFromRow(row);
+  });
 
-    res.status(201).json({ token: userToken(user), user: sessionUser(user) });
-  } catch (err) {
-    await deleteFiles(savedIds);
-    throw err;
-  }
+  res.status(201).json({ token: userToken(user), user: sessionUser(user) });
 });
 
 /* ---------- Login (with optional two-step OTP) ---------- */
 
 async function finishLogin(user, res) {
-  user.prevLoginAt = user.lastLoginAt;
-  user.lastLoginAt = new Date();
-  await user.save();
+  await db.query("UPDATE users SET prev_login_at = last_login_at, last_login_at = now() WHERE id = $1", [user.id]);
   res.json({ token: userToken(user), user: sessionUser(user) });
 }
 
@@ -254,8 +259,8 @@ router.post("/login", loginLimit, async (req, res) => {
 router.post("/login/verify", loginLimit, async (req, res) => {
   const payload = readToken(req.body?.challenge, "login-challenge");
   if (!payload) throw new HttpError(401, "This login has expired. Please enter your password again.");
-  const user = await User.findById(payload.sub);
-  if (!user || (payload.v ?? 0) !== (user.tokenVersion ?? 0)) throw new HttpError(401, "This login has expired. Please enter your password again.");
+  const user = /^\d+$/.test(String(payload.sub)) ? await getUserById(db, Number(payload.sub)) : null;
+  if (!user || (payload.v ?? 0) !== user.tokenVersion) throw new HttpError(401, "This login has expired. Please enter your password again.");
   if (user.blocked) throw new HttpError(403, "Your account is blocked. Please contact support.");
   await verifyOtp("login", "mobile", user.mobile, req.body?.code);
   await finishLogin(user, res);
@@ -281,9 +286,11 @@ router.post("/password/reset", otpLimit, async (req, res) => {
   const user = await findByIdentifier(req.body?.identifier);
   if (!user) throw badRequest("This OTP has expired. Please request a new one.", { code: "Expired." });
   await verifyOtp("reset-password", "mobile", user.mobile, req.body?.code);
-  user.passwordHash = await hashSecret(req.body.password);
-  user.tokenVersion = (user.tokenVersion ?? 0) + 1; // sign out every device
-  await user.save();
+  // New password; token_version + 1 signs out every device
+  await db.query("UPDATE users SET password_hash = $2, token_version = token_version + 1 WHERE id = $1", [
+    user.id,
+    await hashSecret(req.body.password),
+  ]);
   res.json({ reset: true });
 });
 
@@ -293,11 +300,11 @@ router.post("/admin/login", loginLimit, async (req, res) => {
   const username = str(req.body?.username, 60).toLowerCase();
   const password = String(req.body?.password ?? "");
   if (!username || !password) throw badRequest("Enter your username and password.");
-  const admin = await Admin.findOne({ username });
-  const ok = await checkSecret(password, admin?.passwordHash || (await DUMMY()));
+  const { rows } = await db.query("SELECT * FROM admins WHERE username = $1", [username]);
+  const admin = rows[0];
+  const ok = await checkSecret(password, admin?.password_hash || (await DUMMY()));
   if (!admin || !ok) throw new HttpError(401, "Wrong username or password.");
-  admin.lastLoginAt = new Date();
-  await admin.save();
+  await db.query("UPDATE admins SET last_login_at = now() WHERE id = $1", [admin.id]);
   res.json({ token: adminToken(admin), admin: { username: admin.username } });
 });
 

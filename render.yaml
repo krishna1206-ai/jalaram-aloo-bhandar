@@ -15,7 +15,7 @@ services:
         value: "22"
       - key: JWT_SECRET
         generateValue: true
-      - key: MONGODB_URI
+      - key: DATABASE_URL
         sync: false
       - key: DATA_KEY
         sync: false # 64 hex characters; keep a safe copy, data can't be read without it

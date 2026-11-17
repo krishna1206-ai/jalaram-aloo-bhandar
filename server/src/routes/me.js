@@ -2,11 +2,11 @@ import { Router } from "express";
 import rateLimit from "express-rate-limit";
 import { productByKey } from "../catalog.js";
 import { config } from "../config.js";
+import { db, withTransaction } from "../db.js";
 import { HttpError, badRequest, validator } from "../errors.js";
 import { requireUser } from "../middleware/auth.js";
 import { quoteInRupees, toRupees } from "../money.js";
-import { Holding, Order, Rate, Transaction, User } from "../models/index.js";
-import { deleteFiles } from "../services/files.js";
+import { documentsOf, getUserById } from "../records.js";
 import { checkDocs, kycUpload, storeDocs } from "../services/kyc.js";
 import { sendOtp, verifyOtp } from "../services/otp.js";
 import { createPaymentOrder, verifyCheckout } from "../services/payments.js";
@@ -25,7 +25,7 @@ const secretLimit = rateLimit({
   limit: config.isTest ? 10_000 : 10,
   standardHeaders: "draft-8",
   legacyHeaders: false,
-  keyGenerator: (req) => String(req.user._id),
+  keyGenerator: (req) => String(req.user.id),
   message: { error: "Too many attempts. Please wait 15 minutes." },
 });
 
@@ -35,10 +35,11 @@ async function requirePassword(user, password) {
   }
 }
 
-const fresh = (req) => User.findById(req.user._id);
+const fresh = (req) => getUserById(db, req.user.id);
+const docKeys = async (userId) => (await documentsOf(db, userId)).map((d) => d.key);
 
-router.get("/", (req, res) => {
-  res.json({ user: meView(req.user) });
+router.get("/", async (req, res) => {
+  res.json({ user: meView(req.user, await docKeys(req.user.id)) });
 });
 
 /* ---------- Settings and security ---------- */
@@ -46,19 +47,17 @@ router.get("/", (req, res) => {
 // Body: { marketing?, twoFactor?, password (needed to change twoFactor) }
 router.patch("/settings", secretLimit, async (req, res) => {
   const { marketing, twoFactor, password } = req.body || {};
-  const set = {};
+  if (marketing === undefined && twoFactor === undefined) throw badRequest("Nothing to change.");
   if (marketing !== undefined) {
     if (typeof marketing !== "boolean") throw badRequest("marketing must be true or false.");
-    set["consents.marketing"] = marketing;
+    await db.query("UPDATE users SET consent_marketing = $2 WHERE id = $1", [req.user.id, marketing]);
   }
   if (twoFactor !== undefined) {
     if (typeof twoFactor !== "boolean") throw badRequest("twoFactor must be true or false.");
     await requirePassword(req.user, password);
-    set.twoFactor = twoFactor;
+    await db.query("UPDATE users SET two_factor = $2 WHERE id = $1", [req.user.id, twoFactor]);
   }
-  if (!Object.keys(set).length) throw badRequest("Nothing to change.");
-  await User.updateOne({ _id: req.user._id }, { $set: set });
-  res.json({ user: meView(await fresh(req)) });
+  res.json({ user: meView(await fresh(req), await docKeys(req.user.id)) });
 });
 
 // Body: { currentPassword, newPassword }. Signs out other devices; returns a new token for this one.
@@ -68,10 +67,9 @@ router.post("/password", secretLimit, async (req, res) => {
   const problem = passwordProblem(newPassword);
   if (problem) throw badRequest(problem, { newPassword: problem });
   if (await checkSecret(newPassword, req.user.passwordHash)) throw badRequest("Choose a password you haven't used here.", { newPassword: "Same as before." });
-  req.user.passwordHash = await hashSecret(newPassword);
-  req.user.tokenVersion = (req.user.tokenVersion ?? 0) + 1;
-  await req.user.save();
-  res.json({ token: userToken(req.user), user: sessionUser(req.user) });
+  await db.query("UPDATE users SET password_hash = $2, token_version = token_version + 1 WHERE id = $1", [req.user.id, await hashSecret(newPassword)]);
+  const user = await fresh(req);
+  res.json({ token: userToken(user), user: sessionUser(user) });
 });
 
 // Step 1 of a PIN reset: OTP to the registered mobile
@@ -86,13 +84,13 @@ router.post("/pin", secretLimit, async (req, res) => {
   await requirePassword(req.user, password);
   if (!/^\d{6}$/.test(String(pin ?? ""))) throw badRequest("Your new PIN must be 6 digits.", { pin: "6 digits." });
   await verifyOtp("reset-pin", "mobile", req.user.mobile, code);
-  await User.updateOne({ _id: req.user._id }, { pinHash: await hashSecret(pin), pinFailures: 0, $unset: { pinLockedUntil: 1 } });
+  await db.query("UPDATE users SET pin_hash = $2, pin_failures = 0, pin_locked_until = NULL WHERE id = $1", [req.user.id, await hashSecret(pin)]);
   res.json({ reset: true });
 });
 
 // Signs out every device, including this one
 router.post("/logout-all", async (req, res) => {
-  await User.updateOne({ _id: req.user._id }, { $inc: { tokenVersion: 1 } });
+  await db.query("UPDATE users SET token_version = token_version + 1 WHERE id = $1", [req.user.id]);
   res.json({ loggedOut: true });
 });
 
@@ -105,31 +103,31 @@ router.post("/kyc/documents", kycUpload, async (req, res) => {
   v.done();
   if (!keys.length) throw badRequest("Choose at least one document to upload.");
 
-  const { documents } = await storeDocs(req.files, keys, req.user.mobile);
-  const replaced = req.user.documents.filter((d) => keys.includes(d.key));
-  req.user.documents = [...req.user.documents.filter((d) => !keys.includes(d.key)), ...documents];
-  req.user.kyc = { status: "pending", note: "", reviewedAt: undefined };
-  await req.user.save();
-  await deleteFiles(replaced.map((d) => d.fileId));
-  res.json({ user: meView(req.user) });
+  await withTransaction(async (tx) => {
+    await storeDocs(tx, req.user.id, req.files, keys);
+    await tx.query("UPDATE users SET kyc_status = 'pending', kyc_note = NULL, kyc_reviewed_at = NULL WHERE id = $1", [req.user.id]);
+  });
+  res.json({ user: meView(await fresh(req), await docKeys(req.user.id)) });
 });
+
+/* ---------- Godown, passbook, orders ---------- */
 
 // "My godown": bags held, valued at today's mandi rate
 router.get("/holdings", async (req, res) => {
-  const holdings = await Holding.find({ user: req.user._id, bags: { $gt: 0 } }).sort({ updatedAt: -1 }).lean();
-  if (!holdings.length) return res.json({ holdings: [] });
-  const rates = await Rate.find(
-    { $or: holdings.map((h) => ({ product: h.product, city: h.city })) },
-    { product: 1, city: 1, today: 1, yesterday: 1 }
-  )
-    .slice("history", -7)
-    .lean();
-  const rateOf = (h) => rates.find((r) => r.product === h.product && r.city === h.city);
-
+  const { rows } = await db.query(
+    `SELECT h.product, h.city, h.bags, h.avg_cost_paise, r.today, r.yesterday,
+            ARRAY(SELECT c FROM (SELECT c, day FROM rate_history x WHERE x.rate_id = r.id ORDER BY day DESC LIMIT 7) t ORDER BY day) AS trend
+     FROM holdings h
+     LEFT JOIN rates r ON r.product = h.product AND r.city = h.city
+     WHERE h.user_id = $1 AND h.bags > 0
+     ORDER BY h.updated_at DESC`,
+    [req.user.id]
+  );
   res.json({
-    holdings: holdings.map((h) => {
+    holdings: rows.map((h) => {
       const p = productByKey(h.product);
-      const r = rateOf(h);
+      const avg = toRupees(h.avg_cost_paise);
+      const ltp = h.today ?? avg;
       return {
         id: `${h.city}|${h.product}`,
         product: h.product,
@@ -137,10 +135,10 @@ router.get("/holdings", async (req, res) => {
         pack: p?.pack ?? "",
         city: h.city,
         bags: h.bags,
-        avgCost: toRupees(h.avgCostPaise),
-        ltp: r?.today ?? toRupees(h.avgCostPaise),
-        prev: r?.yesterday ?? r?.today ?? toRupees(h.avgCostPaise),
-        trend: r?.history?.length ? r.history.map((c) => c.c) : [r?.today ?? toRupees(h.avgCostPaise)],
+        avgCost: avg,
+        ltp,
+        prev: h.yesterday ?? ltp,
+        trend: h.trend?.length ? h.trend.map(Number) : [ltp],
       };
     }),
   });
@@ -149,26 +147,30 @@ router.get("/holdings", async (req, res) => {
 // Passbook, newest first: GET /api/me/transactions?limit=100
 router.get("/transactions", async (req, res) => {
   const limit = Math.min(500, Math.max(1, Number(req.query.limit) || 200));
-  const txns = await Transaction.find({ user: req.user._id }).sort({ createdAt: -1, _id: -1 }).limit(limit).lean();
-  res.json({ transactions: txns.map(txnView) });
+  const { rows } = await db.query(
+    "SELECT * FROM transactions WHERE user_id = $1 ORDER BY created_at DESC, id DESC LIMIT $2",
+    [req.user.id, limit]
+  );
+  res.json({ transactions: rows.map(txnView) });
 });
 
 router.get("/orders", async (req, res) => {
-  const orders = await Order.find({ user: req.user._id }).sort({ createdAt: -1 }).limit(200).lean();
-  res.json({ orders: orders.map((o) => orderView(o, req.user)) });
+  const { rows } = await db.query("SELECT * FROM orders WHERE user_id = $1 ORDER BY created_at DESC, id DESC LIMIT 200", [req.user.id]);
+  res.json({ orders: rows.map((o) => orderView(o, req.user.clientId)) });
 });
 
 // Body: { side: "Buy"|"Sell", product, city, bags, pin }
 router.post("/orders", async (req, res) => {
   const { order, bill } = await placeOrder(req.user, req.body || {});
-  const fresh = await req.user.constructor.findById(req.user._id);
-  res.status(201).json({ order: orderView(order, req.user), bill: quoteInRupees(bill), wallet: walletView(fresh) });
+  res.status(201).json({ order: orderView(order, req.user.clientId), bill: quoteInRupees(bill), wallet: walletView(await fresh(req)) });
 });
+
+/* ---------- Wallet ---------- */
 
 // Body: { amount, method: "UPI"|"Bank transfer", upiApp, upiId, utr }
 router.post("/wallet/deposits", async (req, res) => {
   const { request, txn } = await requestDeposit(req.user, req.body || {});
-  res.status(201).json({ requestId: request.reqId, transaction: txnView(txn), wallet: walletView(req.user) });
+  res.status(201).json({ requestId: request.req_id, transaction: txnView(txn), wallet: walletView(await fresh(req)) });
 });
 
 // Online payment, step 1. Body: { amount }. Returns what Razorpay Checkout needs.
@@ -185,8 +187,7 @@ router.post("/wallet/payments/verify", async (req, res) => {
 // Body: { amount, pin }
 router.post("/wallet/withdrawals", async (req, res) => {
   const { request, txn } = await requestWithdrawal(req.user, req.body || {});
-  const fresh = await req.user.constructor.findById(req.user._id);
-  res.status(201).json({ requestId: request.reqId, transaction: txnView(txn), wallet: walletView(fresh) });
+  res.status(201).json({ requestId: request.req_id, transaction: txnView(txn), wallet: walletView(await fresh(req)) });
 });
 
 export default router;

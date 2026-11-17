@@ -1,6 +1,6 @@
 // Shapes the API returns. Money leaves the server in rupees; sensitive numbers are masked.
 import { toRupees } from "../money.js";
-import { readAccountNumber, readPan } from "../models/index.js";
+import { readAccountNumber, readPan } from "../records.js";
 
 const BANKS = {
   HDFC: "HDFC Bank", SBIN: "SBI", ICIC: "ICICI Bank", UTIB: "Axis Bank", KKBK: "Kotak Bank",
@@ -12,6 +12,7 @@ export const bankName = (bank) => bank?.bankName || BANKS[(bank?.ifsc || "").sli
 export const bankLabel = (bank) => (bank?.accountLast4 ? `${bankName(bank)} ••••${bank.accountLast4}` : "Not added");
 
 const maskMobile = (m = "") => (m.length === 10 ? `+91 ${m.slice(0, 2)}•••••${m.slice(-3)}` : m);
+const ms = (d) => new Date(d).getTime();
 
 export function walletView(user) {
   return { available: toRupees(user.availablePaise), onHold: toRupees(user.onHoldPaise) };
@@ -28,7 +29,8 @@ export function sessionUser(user) {
   };
 }
 
-export function meView(user) {
+// `documents` = keys of uploaded KYC files
+export function meView(user, documents = []) {
   const n = user.nominee;
   return {
     ...sessionUser(user),
@@ -39,47 +41,48 @@ export function meView(user) {
     branch: user.bank?.branch || "",
     nominee: n?.name ? `${n.name}${n.relation ? ` (${n.relation})` : ""}` : "Not added",
     kycNote: user.kyc?.status === "rejected" ? user.kyc?.note || "" : "",
-    documents: (user.documents || []).map((d) => d.key),
+    documents,
     blocked: user.blocked,
     twoFactor: Boolean(user.twoFactor),
     marketing: Boolean(user.consents?.marketing),
     memberSince: user.createdAt,
     lastLogin: user.prevLoginAt || user.lastLoginAt || null,
-    pinLocked: Boolean(user.pinLockedUntil && user.pinLockedUntil > new Date()),
+    pinLocked: Boolean(user.pinLockedUntil && new Date(user.pinLockedUntil) > new Date()),
     wallet: walletView(user),
   };
 }
 
+// Rows from the transactions / orders / wallet_requests tables
 export const txnView = (t) => ({
-  id: t.txnId,
+  id: t.txn_id,
   type: t.type,
-  desc: t.desc,
-  amount: toRupees(t.amountPaise),
-  date: t.createdAt,
+  desc: t.descr,
+  amount: toRupees(t.amount_paise),
+  date: t.created_at,
   status: t.status,
 });
 
-export const orderView = (o, user) => ({
-  id: o.orderId,
-  userId: user?.clientId,
+export const orderView = (o, clientId = o.client_id) => ({
+  id: o.order_id,
+  userId: clientId,
   side: o.side,
   item: o.product,
   city: o.city,
   bags: o.bags,
-  rate: toRupees(o.ratePaise),
-  charges: toRupees(o.chargesPaise),
-  total: toRupees(o.totalPaise),
-  time: new Date(o.createdAt).getTime(),
+  rate: toRupees(o.rate_paise),
+  charges: toRupees(o.charges_paise),
+  total: toRupees(o.total_paise),
+  time: ms(o.created_at),
 });
 
-export const requestView = (r, user) => ({
-  id: r.reqId,
-  userId: user?.clientId,
+export const requestView = (r, clientId = r.client_id) => ({
+  id: r.req_id,
+  userId: clientId,
   type: r.type,
-  amount: toRupees(r.amountPaise),
+  amount: toRupees(r.amount_paise),
   method: r.method,
   status: r.status,
-  time: new Date(r.createdAt).getTime(),
+  time: ms(r.created_at),
 });
 
 // Row in the admin users table
@@ -94,12 +97,12 @@ export const adminUserView = (u) => ({
   blocked: u.blocked,
   balance: toRupees(u.availablePaise),
   onHold: toRupees(u.onHoldPaise),
-  joined: new Date(u.createdAt).getTime(),
+  joined: ms(u.createdAt),
 });
 
 // Everything an admin needs to check a KYC application (decrypted)
-export const adminUserDetail = (u) => {
-  const { panEnc, panHash, ...profile } = u.profile || {};
+export const adminUserDetail = (u, documents = []) => {
+  const { panEnc, ...profile } = u.profile || {};
   const { accountNumberEnc, ...bank } = u.bank || {};
   return {
     ...adminUserView(u),
@@ -109,6 +112,6 @@ export const adminUserDetail = (u) => {
     bank: { ...bank, accountNumber: readAccountNumber(u), bankName: bankName(u.bank) },
     nominee: u.nominee,
     consents: u.consents,
-    documents: (u.documents || []).map(({ key, filename, contentType, size, uploadedAt }) => ({ key, filename, contentType, size, uploadedAt })),
+    documents,
   };
 };

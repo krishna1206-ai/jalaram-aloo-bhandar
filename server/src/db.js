@@ -1,104 +1,90 @@
-import { spawn } from "node:child_process";
+// PostgreSQL connection, schema setup and transactions.
 import fs from "node:fs";
-import mongoose from "mongoose";
+import pg from "pg";
 import { config } from "./config.js";
 
-let memoryServer = null;
-let localMongod = null;
+// BIGINT (paise, ids) and NUMERIC (rates) come back as JS numbers; DATE stays "YYYY-MM-DD"
+pg.types.setTypeParser(20, (v) => Number(v));
+pg.types.setTypeParser(1700, (v) => Number(v));
+pg.types.setTypeParser(1082, (v) => v);
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+let pool = null;
 
-/* ---------- Local database saved on disk (development without MONGODB_URI) ---------- */
+const schemaSql = () => fs.readFileSync(new URL("./db/schema.sql", import.meta.url), "utf8");
 
-async function ping(url) {
-  const client = new mongoose.mongo.MongoClient(url, { serverSelectionTimeoutMS: 800 });
+function dbNameOf(url) {
+  return decodeURIComponent(new URL(url).pathname.replace(/^\//, ""));
+}
+
+// Creates the database (e.g. "jalaram") on first start if it doesn't exist yet
+async function ensureDatabase(url) {
+  const name = dbNameOf(url);
+  if (!/^[A-Za-z0-9_]+$/.test(name)) throw new Error(`Database name "${name}" may only use letters, numbers and _.`);
+  const admin = new URL(url);
+  admin.pathname = "/postgres";
+  const client = new pg.Client({ connectionString: admin.toString() });
   try {
     await client.connect();
-    return client;
   } catch {
-    await client.close().catch(() => {});
-    return null;
+    return; // hosted databases usually don't allow this; the database already exists there
   }
-}
-
-// Starts mongod with its files in server/.data/db as a one-node replica set
-// (transactions need a replica set). If one is already running on the port, it is reused.
-async function startLocalMongo() {
-  const { localDbPath: dbPath, localDbPort: port } = config;
-  const direct = `mongodb://127.0.0.1:${port}/?directConnection=true`;
-
-  let client = await ping(direct);
-  if (!client) {
-    fs.mkdirSync(dbPath, { recursive: true });
-    const { MongoBinary } = await import("mongodb-memory-server");
-    const bin = await MongoBinary.getPath(); // downloads MongoDB once, then reuses it
-    localMongod = spawn(bin, ["--dbpath", dbPath, "--port", String(port), "--bind_ip", "127.0.0.1", "--replSet", "rs0"], {
-      stdio: ["ignore", "ignore", "pipe"],
-      windowsHide: true,
-    });
-    let stderr = "";
-    localMongod.stderr.on("data", (d) => (stderr += d));
-    localMongod.on("exit", (code) => {
-      if (code && !config.isTest) console.error(`Local MongoDB stopped (code ${code}). ${stderr.slice(-500)}`);
-      localMongod = null;
-    });
-    for (let i = 0; i < 60 && !client; i++) {
-      await sleep(500);
-      if (!localMongod) throw new Error(`Local MongoDB could not start. ${stderr.slice(-500)}`);
-      client = await ping(direct);
-    }
-    if (!client) throw new Error("Local MongoDB did not start within 30 seconds.");
-  }
-
-  // First run: turn it into a replica set
-  const admin = client.db("admin");
   try {
-    await admin.command({ replSetGetStatus: 1 });
-  } catch (err) {
-    if (err.codeName !== "NotYetInitialized") throw err;
-    await admin.command({ replSetInitiate: { _id: "rs0", members: [{ _id: 0, host: `127.0.0.1:${port}` }] } });
+    const { rowCount } = await client.query("SELECT 1 FROM pg_database WHERE datname = $1", [name]);
+    if (!rowCount) {
+      await client.query(`CREATE DATABASE "${name}"`);
+      if (!config.isTest) console.log(`Created PostgreSQL database "${name}".`);
+    }
+  } finally {
+    await client.end();
   }
-  for (let i = 0; i < 60; i++) {
-    if ((await admin.command({ hello: 1 })).isWritablePrimary) break;
-    await sleep(250);
-  }
-  await client.close();
-  return `mongodb://127.0.0.1:${port}/jalaram?replicaSet=rs0&directConnection=true`;
 }
 
-/* ---------- Connect ---------- */
-
-export async function connectDb(uri = config.mongoUri) {
-  if (!uri) {
-    if (config.isProd) throw new Error("MONGODB_URI is required in production.");
-    if (config.localDb === "disk") {
-      uri = await startLocalMongo();
-      console.log(`Using the local database saved in ${config.localDbPath}`);
-    } else {
-      // Temporary database for tests: gone when the process stops
-      const { MongoMemoryReplSet } = await import("mongodb-memory-server");
-      memoryServer = await MongoMemoryReplSet.create({ replSet: { count: 1 } });
-      uri = memoryServer.getUri("jalaram");
-      if (!config.isTest) console.warn("⚠  Using a temporary in-memory MongoDB. All data is lost when the server stops.");
-    }
+export async function connectDb(url = config.databaseUrl) {
+  if (!url) {
+    throw new Error(
+      "DATABASE_URL is not set. Add it to server/.env, e.g. DATABASE_URL=postgres://postgres:PASSWORD@localhost:5432/jalaram"
+    );
   }
-  await mongoose.connect(uri);
-  return mongoose.connection;
+  await ensureDatabase(url);
+  pool = new pg.Pool({ connectionString: url, max: 10 });
+  pool.on("error", (err) => console.error("PostgreSQL connection error", err.message));
+  await pool.query(schemaSql());
+  return pool;
 }
 
 export async function disconnectDb() {
-  await mongoose.disconnect();
-  if (memoryServer) {
-    await memoryServer.stop();
-    memoryServer = null;
-  }
-  if (localMongod) {
-    localMongod.kill();
-    localMongod = null;
+  await pool?.end();
+  pool = null;
+}
+
+export const dbReady = () => Boolean(pool);
+
+// Single statement outside a transaction
+export const query = (text, params) => pool.query(text, params);
+
+// Same interface as a transaction client, so helpers can take either
+export const db = { query };
+
+// Runs fn(client) inside BEGIN/COMMIT; rolls back if anything throws.
+// Every query in fn must use the `client` it receives.
+export async function withTransaction(fn) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const result = await fn(client);
+    await client.query("COMMIT");
+    return result;
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw err;
+  } finally {
+    client.release();
   }
 }
 
-// Runs fn inside a MongoDB transaction and retries on transient write conflicts.
-export function withTransaction(fn) {
-  return mongoose.connection.transaction(fn);
+// Tests only: wipe everything and recreate the tables
+export async function resetDatabase() {
+  if (!dbNameOf(config.databaseUrl).endsWith("_test")) throw new Error("resetDatabase only runs on a *_test database.");
+  await pool.query("DROP SCHEMA public CASCADE; CREATE SCHEMA public;");
+  await pool.query(schemaSql());
 }

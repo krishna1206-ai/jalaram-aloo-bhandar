@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import { config } from "../config.js";
+import { db } from "../db.js";
 import { HttpError, badRequest } from "../errors.js";
-import { Otp } from "../models/index.js";
 import { sendEmail, sendSms } from "./notify.js";
 
 const DEV_CODE = "123456";
@@ -40,29 +40,39 @@ async function deliver(purpose, channel, target, code) {
 }
 
 export async function sendOtp(purpose, channel, target) {
-  const recent = await Otp.findOne({ purpose, channel, target }).sort({ createdAt: -1 });
-  if (recent && Date.now() - recent.createdAt.getTime() < RESEND_AFTER_MS) {
+  await db.query("DELETE FROM otps WHERE expires_at < now()");
+  const { rows } = await db.query(
+    "SELECT created_at FROM otps WHERE purpose = $1 AND channel = $2 AND target = $3 ORDER BY created_at DESC LIMIT 1",
+    [purpose, channel, target]
+  );
+  if (rows[0] && Date.now() - new Date(rows[0].created_at).getTime() < RESEND_AFTER_MS) {
     throw new HttpError(429, "Please wait 30 seconds before asking for another OTP.");
   }
   const code = config.otpDevMode ? DEV_CODE : String(crypto.randomInt(0, 1_000_000)).padStart(6, "0");
   await deliver(purpose, channel, target, code);
-  await Otp.deleteMany({ purpose, channel, target });
-  await Otp.create({ purpose, channel, target, codeHash: hash(code), expiresAt: new Date(Date.now() + TTL_MS) });
+  await db.query("DELETE FROM otps WHERE purpose = $1 AND channel = $2 AND target = $3", [purpose, channel, target]);
+  await db.query(
+    "INSERT INTO otps (purpose, channel, target, code_hash, expires_at) VALUES ($1, $2, $3, $4, $5)",
+    [purpose, channel, target, hash(code), new Date(Date.now() + TTL_MS)]
+  );
 }
 
 // Throws unless the code is right. A code works once.
 export async function verifyOtp(purpose, channel, target, code) {
-  const otp = await Otp.findOneAndUpdate(
-    { purpose, channel, target, expiresAt: { $gt: new Date() } },
-    { $inc: { attempts: 1 } },
-    { returnDocument: "after" }
+  const { rows } = await db.query(
+    `UPDATE otps SET attempts = attempts + 1
+     WHERE id = (SELECT id FROM otps WHERE purpose = $1 AND channel = $2 AND target = $3 AND expires_at > now()
+                 ORDER BY created_at DESC LIMIT 1)
+     RETURNING id, attempts, code_hash`,
+    [purpose, channel, target]
   );
+  const otp = rows[0];
   if (!otp) throw badRequest("This OTP has expired. Please request a new one.", { code: "Expired." });
   if (otp.attempts > MAX_ATTEMPTS) {
-    await otp.deleteOne();
+    await db.query("DELETE FROM otps WHERE id = $1", [otp.id]);
     throw badRequest("Too many wrong tries. Please request a new OTP.", { code: "Too many tries." });
   }
-  const ok = /^\d{6}$/.test(String(code)) && crypto.timingSafeEqual(Buffer.from(hash(String(code))), Buffer.from(otp.codeHash));
+  const ok = /^\d{6}$/.test(String(code)) && crypto.timingSafeEqual(Buffer.from(hash(String(code))), Buffer.from(otp.code_hash));
   if (!ok) throw badRequest("Incorrect OTP. Please try again.", { code: "Incorrect." });
-  await otp.deleteOne();
+  await db.query("DELETE FROM otps WHERE id = $1", [otp.id]);
 }

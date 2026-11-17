@@ -1,12 +1,12 @@
 // KYC document uploads, shared by registration and re-upload after a rejection.
+// Files are stored in the kyc_documents table (BYTEA).
 import multer from "multer";
-import { deleteFiles, saveFile, sniffType } from "./files.js";
+import { sniffType } from "./files.js";
 
 const ANY = ["image/jpeg", "image/png", "image/webp", "application/pdf"];
 const IMAGE = ["image/jpeg", "image/png", "image/webp"];
 
 export const DOCS = { panCard: ANY, aadhaarFront: ANY, selfie: IMAGE, signature: IMAGE, cheque: ANY };
-const EXT = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "application/pdf": "pdf" };
 
 export const kycUpload = multer({
   storage: multer.memoryStorage(),
@@ -33,24 +33,17 @@ export function checkDocs(files, v, { required = true } = {}) {
   return ok;
 }
 
-// Saves the files to GridFS. If anything fails, the files saved so far are removed again.
-export async function storeDocs(files, keys, owner) {
-  const savedIds = [];
-  try {
-    const documents = [];
-    for (const key of keys) {
-      const file = files[key][0];
-      const fileId = await saveFile(file.buffer, {
-        filename: `${key}.${EXT[file.detectedType]}`,
-        contentType: file.detectedType,
-        metadata: { owner, key },
-      });
-      savedIds.push(fileId);
-      documents.push({ key, fileId, filename: file.originalname.slice(0, 120), contentType: file.detectedType, size: file.size, uploadedAt: new Date() });
-    }
-    return { documents, savedIds };
-  } catch (err) {
-    await deleteFiles(savedIds);
-    throw err;
+// Saves (or replaces) the user's documents. Pass the transaction client so it commits with the rest.
+export async function storeDocs(db, userId, files, keys) {
+  for (const key of keys) {
+    const file = files[key][0];
+    await db.query(
+      `INSERT INTO kyc_documents (user_id, doc_key, filename, content_type, size, data)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT (user_id, doc_key) DO UPDATE
+         SET filename = EXCLUDED.filename, content_type = EXCLUDED.content_type,
+             size = EXCLUDED.size, data = EXCLUDED.data, uploaded_at = now()`,
+      [userId, key, file.originalname.slice(0, 120), file.detectedType, file.size, file.buffer]
+    );
   }
 }

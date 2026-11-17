@@ -1,6 +1,6 @@
 # Jalaram Aloo Bhandar — API
 
-Express 5 + MongoDB (Mongoose) backend for the React app in the folder above.
+Express 5 + PostgreSQL backend for the React app in the folder above.
 
 ## Run it locally
 
@@ -12,7 +12,13 @@ npm run dev          # API on http://localhost:5000/api
 
 Then start the frontend in another terminal from the project root with `npm run dev`. Vite forwards `/api` to port 5000.
 
-If `MONGODB_URI` is not set, the server starts a **local MongoDB that saves its data in `server/.data/db`**, so your data stays after a restart. On the very first start it loads the demo data. To start again with fresh demo data, use **Reset demo data** in the admin panel, or stop the server and delete the `server/.data` folder. For the online site, set `MONGODB_URI` to a MongoDB Atlas connection string instead.
+**Database:** PostgreSQL. Put its address in `server/.env`:
+
+```
+DATABASE_URL=postgres://postgres:YOUR_PASSWORD@localhost:5432/jalaram
+```
+
+On first start the server creates the `jalaram` database and every table ([src/db/schema.sql](src/db/schema.sql)). You can browse them in **pgAdmin** under *Databases → jalaram → Schemas → public → Tables*. Set `SEED_DEMO=true` to load demo users, or `false` for real sign-ups only.
 
 | Demo login | |
 |---|---|
@@ -21,7 +27,7 @@ If `MONGODB_URI` is not set, the server starts a **local MongoDB that saves its 
 | Admin (`/admin/login`) | `admin` / `admin@123` (dev only, set your own in production) |
 | Sign-up OTP (dev mode) | `123456` |
 
-Tests: `npm test` runs the end-to-end tests against an in-memory database.
+Tests: `npm test` runs the end-to-end tests against a separate `jalaram_test` database, which is wiped on every run. Your real data is never touched.
 
 ## How money works
 
@@ -29,7 +35,7 @@ Tests: `npm test` runs the end-to-end tests against an in-memory database.
 - **Online deposits (Razorpay):** UPI, cards and net banking happen in Razorpay's window. The wallet is credited after the server checks the payment signature and confirms with Razorpay that the money was captured. The webhook covers payments the browser never reported back, and a payment can only ever be credited once.
 - **Manual deposits** (UPI to your UPI ID, or bank transfer with a UTR) create a *pending* request. An admin approves it once the money has arrived.
 - **Withdrawals** need the PIN and move the money from *available* to *on hold*. When an admin approves, the money is paid out. When an admin rejects, it goes back to available.
-- **Orders** fill at the server's current mandi rate, never at a price sent by the browser. The charges are 0.5% brokerage, a ₹10 platform fee and 18% GST on charges. Wallet, holding, order and passbook writes happen in one MongoDB transaction with a conditional balance check, so parallel orders can't overdraw the wallet.
+- **Orders** fill at the server's current mandi rate, never at a price sent by the browser. The charges are 0.5% brokerage, a ₹10 platform fee and 18% GST on charges. Wallet, holding, order and passbook writes happen in one PostgreSQL transaction with a conditional balance check, so parallel orders can't overdraw the wallet.
 - Five wrong PINs lock the PIN for 15 minutes.
 
 ## API
@@ -85,7 +91,7 @@ Errors always look like `{ "error": "message", "fields": { "pan": "..." } }`.
 
 ## Deploying
 
-1. **Database:** create a MongoDB Atlas cluster and copy its connection string.
+1. **Database:** create a PostgreSQL database on **Neon** (neon.tech, free and permanent) or Supabase, and copy its connection string. Render also offers PostgreSQL, but its free database is deleted after 30 days.
 2. **API:** in Render, choose **New → Blueprint** and pick this repo. [render.yaml](../render.yaml) sets it up. Fill in the values it asks for (see [.env.example](.env.example)). On other hosts, deploy `server/` with `npm ci --omit=dev` and `npm start`.
 3. **Frontend (Vercel):** set `VITE_API_URL=https://your-api.onrender.com` and redeploy. Put that same Vercel URL in the API's `CORS_ORIGIN`.
 4. **Razorpay:** add the webhook `https://your-api.onrender.com/api/webhooks/razorpay` with the events `payment.captured` and `payment.failed`.

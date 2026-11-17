@@ -1,15 +1,16 @@
-import mongoose from "mongoose";
 import { config } from "./config.js";
+import { db, withTransaction } from "./db.js";
 import { toPaise } from "./money.js";
-import { Admin, AuditLog, Holding, Order, Otp, Payment, Rate, Transaction, User, WalletRequest, accountFields, panFields } from "./models/index.js";
+import { accountColumns, insertRow, panColumns } from "./records.js";
 import { seedRates } from "./services/rates.js";
 import { hashSecret } from "./services/security.js";
 
 // Creates the admin account from ADMIN_USERNAME / ADMIN_PASSWORD the first time the server starts.
 export async function seedAdmin() {
   const username = config.adminUsername.toLowerCase();
-  if (!username || (await Admin.exists({ username }))) return false;
-  await Admin.create({ username, passwordHash: await hashSecret(config.adminPassword) });
+  if (!username) return false;
+  if ((await db.query("SELECT 1 FROM admins WHERE username = $1", [username])).rowCount) return false;
+  await db.query("INSERT INTO admins (username, password_hash) VALUES ($1, $2)", [username, await hashSecret(config.adminPassword)]);
   if (!config.isTest) console.log(`Created admin account "${username}".`);
   return true;
 }
@@ -86,16 +87,16 @@ const TEST_USER = {
   ],
 };
 
-async function wipeUserData() {
-  await Promise.all([User, WalletRequest, Transaction, Order, Holding, Otp, Payment].map((M) => M.deleteMany({})));
-  await new mongoose.mongo.GridFSBucket(mongoose.connection.db, { bucketName: "kyc" }).drop().catch(() => {});
+// Removes every user and everything that belongs to them (admins and rates stay)
+async function wipeUserData(tx) {
+  await tx.query("TRUNCATE payments, transactions, holdings, orders, wallet_requests, kyc_documents, otps, users RESTART IDENTITY CASCADE");
 }
 
 export async function seedDemoData({ reset = false } = {}) {
   if (reset) {
-    await wipeUserData();
+    await withTransaction(wipeUserData);
     await seedRates({ force: true });
-  } else if ((await User.estimatedDocumentCount()) > 0) {
+  } else if ((await db.query("SELECT 1 FROM users LIMIT 1")).rowCount) {
     return false;
   }
 
@@ -105,67 +106,65 @@ export async function seedDemoData({ reset = false } = {}) {
     if (type === "out" && status === "pending") onHold[clientId] = (onHold[clientId] || 0) + toPaise(amount);
   }
 
-  const base = (clientId, name, mobile, city, state, kyc, blocked, availablePaise, joined, ifsc, accountNumber, extra = {}) => ({
-    clientId, name, mobile, kyc: { status: kyc }, blocked, availablePaise, onHoldPaise: onHold[clientId] || 0,
-    email: `${name.toLowerCase().replace(/\s+/g, ".")}@example.com`,
-    passwordHash: demoPassword, pinHash: pin,
-    profile: { ...panFields(`DEMOA${clientId.slice(-4)}X`), gender: "Other", occupation: "Commodity trader", taxResident: true },
-    address: { city, state, pincode: "380001", line: "Demo address" },
-    bank: { accountHolder: name, ...accountFields(accountNumber), ifsc, accountType: "Savings" },
-    consents: { riskAck: true, dataConsent: true, terms: true, marketing: false, at: joined },
-    createdAt: joined,
-    ...extra,
-  });
+  await withTransaction(async (tx) => {
+    const userId = {};
+    const addUser = async (clientId, name, mobile, city, state, kyc, blocked, availablePaise, joined, ifsc, accountNumber, extra = {}) => {
+      const row = await insertRow(tx, "users", {
+        client_id: clientId, name, mobile, kyc_status: kyc, blocked,
+        available_paise: availablePaise, on_hold_paise: onHold[clientId] || 0,
+        email: `${name.toLowerCase().replace(/\s+/g, ".")}@example.com`,
+        password_hash: demoPassword, pin_hash: pin,
+        ...panColumns(`DEMOA${clientId.slice(-4)}X`), gender: "Other", occupation: "Commodity trader", tax_resident: true,
+        city, state, pincode: "380001", address_line: "Demo address",
+        bank_holder: name, ...accountColumns(accountNumber), ifsc, account_type: "Savings",
+        consent_risk: true, consent_data: true, consent_terms: true, consent_at: joined,
+        created_at: joined,
+        ...extra,
+      });
+      userId[clientId] = row.id;
+    };
 
-  const users = await User.insertMany([
-    base(TEST_USER.clientId, TEST_USER.name, TEST_USER.mobile, "Ahmedabad", "Gujarat", "verified", false, toPaise(TEST_USER.available), at(30, "10:00"), "HDFC0001234", "50100012344521", {
+    await addUser(TEST_USER.clientId, TEST_USER.name, TEST_USER.mobile, "Ahmedabad", "Gujarat", "verified", false, toPaise(TEST_USER.available), at(30, "10:00"), "HDFC0001234", "50100012344521", {
       email: TEST_USER.email,
-      passwordHash: testPassword,
-      profile: { ...panFields("ABCDE1234F"), gender: "Other", occupation: "Commodity trader", taxResident: true },
-      nominee: {},
-    }),
-    ...DEMO_USERS.map(([id, name, mobile, city, state, kyc, blocked, bal, [d, t], ifsc, acc]) =>
-      base(id, name, mobile, city, state, kyc, blocked, toPaise(bal), at(d, t), ifsc, acc)
-    ),
-  ]);
-  const userId = Object.fromEntries(users.map((u) => [u.clientId, u._id]));
-
-  // Wallet requests, each with its passbook entry
-  let txnNo = 100250;
-  const requests = [];
-  const txns = [];
-  for (const [reqId, clientId, type, amount, method, [d, t], status] of DEMO_REQUESTS) {
-    const _id = new mongoose.Types.ObjectId();
-    const txnOid = new mongoose.Types.ObjectId();
-    const time = at(d, t);
-    requests.push({ _id, reqId, user: userId[clientId], type, amountPaise: toPaise(amount), method, status, txn: txnOid, createdAt: time, ...(status !== "pending" && { decidedAt: time }) });
-    txns.push({
-      _id: txnOid,
-      txnId: `TXN${txnNo++}`,
-      user: userId[clientId],
-      type: type === "in" ? "Added money" : "Withdrawal",
-      desc: type === "in" ? method.split(" · ").slice(0, 2).join(" · ") : `To ${method.replace("Bank · ", "")}`,
-      amountPaise: type === "in" ? toPaise(amount) : -toPaise(amount),
-      status: status === "pending" ? "Pending" : status === "approved" ? "Completed" : "Rejected",
-      walletRequest: _id,
-      createdAt: time,
+      password_hash: testPassword,
+      ...panColumns("ABCDE1234F"),
     });
-  }
-  for (const [txnId, type, desc, amount, [d, t]] of TEST_USER.txns) {
-    txns.push({ txnId, user: userId[TEST_USER.clientId], type, desc, amountPaise: toPaise(amount), status: "Completed", createdAt: at(d, t) });
-  }
+    for (const [id, name, mobile, city, state, kyc, blocked, bal, [d, t], ifsc, acc] of DEMO_USERS) {
+      await addUser(id, name, mobile, city, state, kyc, blocked, toPaise(bal), at(d, t), ifsc, acc);
+    }
 
-  await WalletRequest.insertMany(requests);
-  await Transaction.insertMany(txns);
-  await Order.insertMany(
-    DEMO_ORDERS.map(([orderId, clientId, side, product, city, bags, rate, [d, t]]) => ({
-      orderId, user: userId[clientId], side, product, city, bags, ratePaise: toPaise(rate),
-      chargesPaise: 0, totalPaise: toPaise(rate * bags), createdAt: at(d, t),
-    }))
-  );
-  await Holding.insertMany(
-    TEST_USER.holdings.map(([product, city, bags, avg]) => ({ user: userId[TEST_USER.clientId], product, city, bags, avgCostPaise: toPaise(avg) }))
-  );
+    // Wallet requests, each with its passbook entry
+    let txnNo = 100250;
+    for (const [reqId, clientId, type, amount, method, [d, t], status] of DEMO_REQUESTS) {
+      const time = at(d, t);
+      const req = await insertRow(tx, "wallet_requests", {
+        req_id: reqId, user_id: userId[clientId], type, amount_paise: toPaise(amount), method, status,
+        created_at: time, decided_at: status !== "pending" ? time : undefined,
+      });
+      await insertRow(tx, "transactions", {
+        txn_id: `TXN${txnNo++}`,
+        user_id: userId[clientId],
+        type: type === "in" ? "Added money" : "Withdrawal",
+        descr: type === "in" ? method.split(" · ").slice(0, 2).join(" · ") : `To ${method.replace("Bank · ", "")}`,
+        amount_paise: type === "in" ? toPaise(amount) : -toPaise(amount),
+        status: status === "pending" ? "Pending" : status === "approved" ? "Completed" : "Rejected",
+        wallet_request_id: req.id,
+        created_at: time,
+      });
+    }
+    for (const [txnId, type, descr, amount, [d, t]] of TEST_USER.txns) {
+      await insertRow(tx, "transactions", { txn_id: txnId, user_id: userId[TEST_USER.clientId], type, descr, amount_paise: toPaise(amount), created_at: at(d, t) });
+    }
+    for (const [orderId, clientId, side, product, city, bags, rate, [d, t]] of DEMO_ORDERS) {
+      await insertRow(tx, "orders", {
+        order_id: orderId, user_id: userId[clientId], side, product, city, bags, rate_paise: toPaise(rate),
+        charges_paise: 0, total_paise: toPaise(rate * bags), created_at: at(d, t),
+      });
+    }
+    for (const [product, city, bags, avg] of TEST_USER.holdings) {
+      await insertRow(tx, "holdings", { user_id: userId[TEST_USER.clientId], product, city, bags, avg_cost_paise: toPaise(avg) });
+    }
+  });
   if (!config.isTest) console.log("Loaded demo data. Demo login: test@gmail.com / 123456, PIN 123456.");
   return true;
 }
@@ -174,9 +173,4 @@ export async function seedAll() {
   await seedAdmin();
   await seedRates();
   if (config.seedDemo) await seedDemoData();
-}
-
-// Builds collections and unique indexes before the first request (transactions can't create them)
-export async function ensureIndexes() {
-  await Promise.all([User, Admin, Otp, Rate, WalletRequest, Transaction, Order, Holding, Payment, AuditLog].map((M) => M.init()));
 }

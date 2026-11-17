@@ -34,8 +34,8 @@ const fakeServer = http.createServer((req, res) => {
 await new Promise((r) => fakeServer.listen(0, r));
 const fakeBase = `http://127.0.0.1:${fakeServer.address().port}`;
 
+// Uses the "<DATABASE_URL name>_test" database (e.g. jalaram_test). It is wiped at the start of every run.
 process.env.NODE_ENV = "test";
-process.env.MONGODB_URI = "";
 process.env.SEED_DEMO = "true";
 process.env.OTP_DEV_MODE = "true";
 process.env.IFSC_API = `${fakeBase}/ifsc`;
@@ -45,9 +45,8 @@ process.env.RAZORPAY_WEBHOOK_SECRET = "hook_secret";
 process.env.RAZORPAY_API_BASE = `${fakeBase}/rzp`;
 
 const { createApp } = await import("../src/app.js");
-const { connectDb, disconnectDb } = await import("../src/db.js");
-const { ensureIndexes, seedAll } = await import("../src/seed.js");
-const { User } = await import("../src/models/index.js");
+const { connectDb, disconnectDb, query, resetDatabase } = await import("../src/db.js");
+const { seedAll } = await import("../src/seed.js");
 
 let server;
 let base;
@@ -64,7 +63,7 @@ async function call(method, path, { body, token, form } = {}) {
 
 before(async () => {
   await connectDb();
-  await ensureIndexes();
+  await resetDatabase();
   await seedAll();
   server = createApp().listen(0);
   base = `http://127.0.0.1:${server.address().port}/api`;
@@ -321,9 +320,9 @@ describe("registration", () => {
 
 describe("security", () => {
   test("PAN and bank account are encrypted in the database, readable by admin", async () => {
-    const raw = await User.findOne({ email: "test@gmail.com" }).lean();
-    assert.equal(raw.profile.pan, undefined);
-    assert.ok(raw.profile.panEnc.startsWith("v1:"));
+    const raw = (await query("SELECT * FROM users WHERE email = 'test@gmail.com'")).rows[0];
+    assert.equal(raw.pan, undefined);
+    assert.ok(raw.pan_enc.startsWith("v1:"));
     assert.ok(!JSON.stringify(raw).includes("ABCDE1234F"));
     assert.ok(!JSON.stringify(raw).includes("50100012344521"));
     const admin = await adminLogin();

@@ -1,6 +1,6 @@
 import bcrypt from "bcryptjs";
+import { db } from "../db.js";
 import { HttpError, badRequest } from "../errors.js";
-import { User } from "../models/index.js";
 
 const MAX_PIN_FAILURES = 5;
 const PIN_LOCK_MS = 15 * 60 * 1000;
@@ -20,22 +20,23 @@ export function passwordProblem(pw) {
 
 // Checks the 6-digit transaction PIN. Five wrong tries lock it for 15 minutes.
 export async function verifyPin(user, pin) {
-  if (user.pinLockedUntil && user.pinLockedUntil > new Date()) {
-    const mins = Math.ceil((user.pinLockedUntil - Date.now()) / 60000);
+  if (user.pinLockedUntil && new Date(user.pinLockedUntil) > new Date()) {
+    const mins = Math.ceil((new Date(user.pinLockedUntil) - Date.now()) / 60000);
     throw new HttpError(423, `Too many wrong PINs. Try again in ${mins} minute${mins === 1 ? "" : "s"}.`);
   }
   if (!/^\d{6}$/.test(String(pin ?? ""))) throw badRequest("Enter your 6-digit transaction PIN.", { pin: "Required." });
 
   if (await checkSecret(pin, user.pinHash)) {
-    if (user.pinFailures) await User.updateOne({ _id: user._id }, { pinFailures: 0, $unset: { pinLockedUntil: 1 } });
+    if (user.pinFailures) await db.query("UPDATE users SET pin_failures = 0, pin_locked_until = NULL WHERE id = $1", [user.id]);
     return;
   }
-  const updated = await User.findOneAndUpdate({ _id: user._id }, { $inc: { pinFailures: 1 } }, { returnDocument: "after" });
-  if (updated.pinFailures >= MAX_PIN_FAILURES) {
-    await User.updateOne({ _id: user._id }, { pinFailures: 0, pinLockedUntil: new Date(Date.now() + PIN_LOCK_MS) });
+  const { rows } = await db.query("UPDATE users SET pin_failures = pin_failures + 1 WHERE id = $1 RETURNING pin_failures", [user.id]);
+  const failures = rows[0].pin_failures;
+  if (failures >= MAX_PIN_FAILURES) {
+    await db.query("UPDATE users SET pin_failures = 0, pin_locked_until = $2 WHERE id = $1", [user.id, new Date(Date.now() + PIN_LOCK_MS)]);
     throw new HttpError(423, "Too many wrong PINs. Your PIN is locked for 15 minutes.");
   }
-  const left = MAX_PIN_FAILURES - updated.pinFailures;
+  const left = MAX_PIN_FAILURES - failures;
   throw badRequest(`Incorrect PIN. ${left} ${left === 1 ? "try" : "tries"} left.`, { pin: "Incorrect PIN." });
 }
 

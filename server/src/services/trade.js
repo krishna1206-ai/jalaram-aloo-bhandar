@@ -2,7 +2,7 @@ import { cityByName, productByKey } from "../catalog.js";
 import { withTransaction } from "../db.js";
 import { badRequest } from "../errors.js";
 import { MAX_BAGS, quote, toPaise } from "../money.js";
-import { Holding, Order, Rate, Transaction, User, newOrderId, newTxnId } from "../models/index.js";
+import { insertRow, newOrderId, newTxnId } from "../records.js";
 import { assertCanTransact, verifyPin } from "./security.js";
 
 export async function placeOrder(user, body) {
@@ -21,71 +21,70 @@ export async function placeOrder(user, body) {
 
   await verifyPin(user, body.pin);
 
-  return withTransaction(async (session) => {
+  return withTransaction(async (tx) => {
     // Always trade at the server's current rate, never a price sent by the browser
-    const rate = await Rate.findOne({ product: product.key, city: city.name }, { today: 1 }).session(session);
-    if (!rate) throw badRequest("No rate is available for this mandi right now.");
-    const ratePaise = toPaise(rate.today);
+    const { rows } = await tx.query("SELECT today FROM rates WHERE product = $1 AND city = $2", [product.key, city.name]);
+    if (!rows[0]) throw badRequest("No rate is available for this mandi right now.");
+    const ratePaise = toPaise(rows[0].today);
     const bill = quote(ratePaise, bags);
-    const holding = await Holding.findOne({ user: user._id, product: product.key, city: city.name }).session(session);
     const label = `${bags} ${bags === 1 ? "bag" : "bags"} ${product.name.toLowerCase()} · ${city.name}`;
 
     let walletChange;
     if (side === "Buy") {
-      const paid = await User.updateOne(
-        { _id: user._id, availablePaise: { $gte: bill.total } },
-        { $inc: { availablePaise: -bill.total } },
-        { session }
+      const paid = await tx.query(
+        "UPDATE users SET available_paise = available_paise - $2 WHERE id = $1 AND available_paise >= $2",
+        [user.id, bill.total]
       );
-      if (!paid.modifiedCount) throw badRequest("Not enough money in your wallet.", { bags: "Not enough money." });
-
-      const oldBags = holding?.bags ?? 0;
-      const oldAvg = holding?.avgCostPaise ?? 0;
-      const totalBags = oldBags + bags;
-      await Holding.updateOne(
-        { user: user._id, product: product.key, city: city.name },
-        { bags: totalBags, avgCostPaise: Math.round((oldBags * oldAvg + bags * ratePaise) / totalBags) },
-        { upsert: true, session }
+      if (!paid.rowCount) throw badRequest("Not enough money in your wallet.", { bags: "Not enough money." });
+      // Add bags and recalculate the average buy rate in one atomic statement
+      await tx.query(
+        `INSERT INTO holdings (user_id, product, city, bags, avg_cost_paise) VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (user_id, product, city) DO UPDATE SET
+           avg_cost_paise = ROUND((holdings.bags * holdings.avg_cost_paise + EXCLUDED.bags * EXCLUDED.avg_cost_paise)::numeric
+                                  / (holdings.bags + EXCLUDED.bags)),
+           bags = holdings.bags + EXCLUDED.bags,
+           updated_at = now()`,
+        [user.id, product.key, city.name, bags, ratePaise]
       );
       walletChange = -bill.total;
     } else {
-      if (!holding || holding.bags < bags) {
-        throw badRequest(`You hold only ${holding?.bags ?? 0} bags of ${product.name.toLowerCase()} in ${city.name}.`, { bags: "Too many." });
-      }
       const proceeds = bill.value - bill.charges;
       if (proceeds <= 0) throw badRequest("This order is too small to cover the charges.", { bags: "Too small." });
-      const left = holding.bags - bags;
-      if (left === 0) await Holding.deleteOne({ _id: holding._id }, { session });
-      else await Holding.updateOne({ _id: holding._id, bags: holding.bags }, { bags: left }, { session });
-      await User.updateOne({ _id: user._id }, { $inc: { availablePaise: proceeds } }, { session });
+      const sold = await tx.query(
+        `UPDATE holdings SET bags = bags - $4, updated_at = now()
+         WHERE user_id = $1 AND product = $2 AND city = $3 AND bags >= $4 RETURNING bags`,
+        [user.id, product.key, city.name, bags]
+      );
+      if (!sold.rowCount) {
+        const have = await tx.query("SELECT bags FROM holdings WHERE user_id = $1 AND product = $2 AND city = $3", [user.id, product.key, city.name]);
+        throw badRequest(`You hold only ${have.rows[0]?.bags ?? 0} bags of ${product.name.toLowerCase()} in ${city.name}.`, { bags: "Too many." });
+      }
+      if (sold.rows[0].bags === 0) {
+        await tx.query("DELETE FROM holdings WHERE user_id = $1 AND product = $2 AND city = $3 AND bags = 0", [user.id, product.key, city.name]);
+      }
+      await tx.query("UPDATE users SET available_paise = available_paise + $2 WHERE id = $1", [user.id, proceeds]);
       walletChange = proceeds;
     }
 
-    const [order] = await Order.create(
-      [{
-        orderId: await newOrderId(session),
-        user: user._id,
-        side,
-        product: product.key,
-        city: city.name,
-        bags,
-        ratePaise,
-        chargesPaise: bill.charges,
-        totalPaise: Math.abs(walletChange),
-      }],
-      { session }
-    );
-    await Transaction.create(
-      [{
-        txnId: await newTxnId(session),
-        user: user._id,
-        type: side === "Buy" ? "Bought" : "Sold",
-        desc: label,
-        amountPaise: walletChange,
-        order: order._id,
-      }],
-      { session }
-    );
+    const order = await insertRow(tx, "orders", {
+      order_id: await newOrderId(tx),
+      user_id: user.id,
+      side,
+      product: product.key,
+      city: city.name,
+      bags,
+      rate_paise: ratePaise,
+      charges_paise: bill.charges,
+      total_paise: Math.abs(walletChange),
+    });
+    await insertRow(tx, "transactions", {
+      txn_id: await newTxnId(tx),
+      user_id: user.id,
+      type: side === "Buy" ? "Bought" : "Sold",
+      descr: label,
+      amount_paise: walletChange,
+      order_ref: order.id,
+    });
     return { order, bill };
   });
 }

@@ -2,10 +2,10 @@
 // Flow: create order → Razorpay Checkout in the browser → verify signature (or webhook) → credit wallet once.
 import crypto from "node:crypto";
 import { config } from "../config.js";
-import { withTransaction } from "../db.js";
+import { db, withTransaction } from "../db.js";
 import { HttpError, badRequest } from "../errors.js";
 import { MAX_DEPOSIT, MIN_WALLET_AMOUNT, toPaise, toRupees } from "../money.js";
-import { Payment, Transaction, User, newTxnId } from "../models/index.js";
+import { getUserById, insertRow, newTxnId } from "../records.js";
 import { notifyUser } from "./notify.js";
 import { assertCanTransact } from "./security.js";
 
@@ -48,7 +48,7 @@ export async function createPaymentOrder(user, amountRupees) {
     method: "POST",
     body: { amount: amountPaise, currency: "INR", receipt: `${user.clientId}-${Date.now()}`.slice(0, 40), notes: { clientId: user.clientId } },
   });
-  await Payment.create({ user: user._id, amountPaise, gatewayOrderId: order.id });
+  await insertRow(db, "payments", { user_id: user.id, amount_paise: amountPaise, gateway_order_id: order.id });
   return {
     keyId: config.razorpay.keyId,
     orderId: order.id,
@@ -61,29 +61,30 @@ export async function createPaymentOrder(user, amountRupees) {
 
 // Marks the payment paid and credits the wallet. Safe to call many times: only the first call credits.
 async function creditPayment(gatewayOrderId, gatewayPaymentId, method, amountPaise) {
-  const result = await withTransaction(async (session) => {
-    const payment = await Payment.findOne({ gatewayOrderId }).session(session);
+  const result = await withTransaction(async (tx) => {
+    const { rows } = await tx.query("SELECT * FROM payments WHERE gateway_order_id = $1 FOR UPDATE", [gatewayOrderId]);
+    const payment = rows[0];
     if (!payment) throw new HttpError(404, "Payment not found.");
     if (payment.status === "paid") return { payment, credited: false };
-    if (amountPaise !== undefined && amountPaise !== payment.amountPaise) throw new HttpError(409, "Paid amount does not match the order.");
+    if (amountPaise !== undefined && Number(amountPaise) !== payment.amount_paise) throw new HttpError(409, "Paid amount does not match the order.");
 
-    const label = METHOD_LABEL[method] || "Online";
-    const [txn] = await Transaction.create(
-      [{ txnId: await newTxnId(session), user: payment.user, type: "Added money", desc: `Razorpay · ${label}`, amountPaise: payment.amountPaise }],
-      { session }
+    const txn = await insertRow(tx, "transactions", {
+      txn_id: await newTxnId(tx),
+      user_id: payment.user_id,
+      type: "Added money",
+      descr: `Razorpay · ${METHOD_LABEL[method] || "Online"}`,
+      amount_paise: payment.amount_paise,
+    });
+    await tx.query(
+      "UPDATE payments SET status = 'paid', gateway_payment_id = $2, method = $3, paid_at = now(), txn_ref = $4 WHERE id = $1",
+      [payment.id, gatewayPaymentId, method, txn.id]
     );
-    const claimed = await Payment.updateOne(
-      { _id: payment._id, status: { $ne: "paid" } },
-      { status: "paid", gatewayPaymentId, method, paidAt: new Date(), txn: txn._id },
-      { session }
-    );
-    if (!claimed.modifiedCount) throw new HttpError(409, "Payment was just processed.");
-    await User.updateOne({ _id: payment.user }, { $inc: { availablePaise: payment.amountPaise } }, { session });
+    await tx.query("UPDATE users SET available_paise = available_paise + $2 WHERE id = $1", [payment.user_id, payment.amount_paise]);
     return { payment, credited: true, txn };
   });
   if (result.credited) {
-    const user = await User.findById(result.payment.user);
-    notifyUser(user, "Money added to your wallet", `₹${toRupees(result.payment.amountPaise).toLocaleString("en-IN")} has been added to your wallet.`);
+    const user = await getUserById(db, result.payment.user_id);
+    notifyUser(user, "Money added to your wallet", `₹${toRupees(result.payment.amount_paise).toLocaleString("en-IN")} has been added to your wallet.`);
   }
   return result;
 }
@@ -91,7 +92,8 @@ async function creditPayment(gatewayOrderId, gatewayPaymentId, method, amountPai
 // Called by the browser after Razorpay Checkout succeeds
 export async function verifyCheckout(user, { orderId, paymentId, signature }) {
   requireEnabled();
-  const payment = await Payment.findOne({ gatewayOrderId: String(orderId), user: user._id });
+  const { rows } = await db.query("SELECT * FROM payments WHERE gateway_order_id = $1 AND user_id = $2", [String(orderId), user.id]);
+  const payment = rows[0];
   if (!payment) throw new HttpError(404, "Payment not found.");
   if (!same(hmac(config.razorpay.keySecret, `${orderId}|${paymentId}`), String(signature))) {
     throw badRequest("Payment could not be verified.");
@@ -100,9 +102,9 @@ export async function verifyCheckout(user, { orderId, paymentId, signature }) {
 
   // Confirm with Razorpay that the money was actually captured
   const p = await razorpay(`/payments/${encodeURIComponent(paymentId)}`);
-  if (p.order_id !== payment.gatewayOrderId) throw badRequest("Payment does not belong to this order.");
+  if (p.order_id !== payment.gateway_order_id) throw badRequest("Payment does not belong to this order.");
   if (p.status !== "captured") return { status: "processing", txn: null }; // the webhook will finish it
-  const { txn } = await creditPayment(payment.gatewayOrderId, p.id, p.method, p.amount);
+  const { txn } = await creditPayment(payment.gateway_order_id, p.id, p.method, p.amount);
   return { status: "paid", txn };
 }
 
@@ -114,8 +116,9 @@ export async function handleWebhook(rawBody, signatureHeader) {
   const event = JSON.parse(rawBody);
   const p = event?.payload?.payment?.entity;
   if (event.event === "payment.captured" && p?.order_id) {
-    if (await Payment.exists({ gatewayOrderId: p.order_id })) await creditPayment(p.order_id, p.id, p.method, p.amount);
+    const known = await db.query("SELECT 1 FROM payments WHERE gateway_order_id = $1", [p.order_id]);
+    if (known.rowCount) await creditPayment(p.order_id, p.id, p.method, p.amount);
   } else if (event.event === "payment.failed" && p?.order_id) {
-    await Payment.updateOne({ gatewayOrderId: p.order_id, status: "created" }, { status: "failed" });
+    await db.query("UPDATE payments SET status = 'failed' WHERE gateway_order_id = $1 AND status = 'created'", [p.order_id]);
   }
 }

@@ -1,5 +1,4 @@
 import dotenv from "dotenv";
-import { fileURLToPath } from "node:url";
 
 dotenv.config({ quiet: true });
 
@@ -8,17 +7,22 @@ const isProd = env.NODE_ENV === "production";
 const isTest = env.NODE_ENV === "test";
 const flag = (value, fallback) => (value === undefined || value === "" ? fallback : value === "true");
 
+// Tests use a separate "<name>_test" database that is wiped on every run
+function testDatabaseUrl() {
+  if (env.TEST_DATABASE_URL) return env.TEST_DATABASE_URL;
+  if (!env.DATABASE_URL) return "";
+  const u = new URL(env.DATABASE_URL);
+  u.pathname = `${u.pathname.replace(/\/$/, "") || "/jalaram"}_test`;
+  return u.toString();
+}
+
 export const config = {
   isProd,
   isTest,
   port: Number(env.PORT) || 5000,
 
-  // Leave empty in development to use a local database saved in server/.data (see LOCAL_DB).
-  mongoUri: env.MONGODB_URI || "",
-  // Without MONGODB_URI: "disk" = local MongoDB that keeps data, "memory" = temporary (tests)
-  localDb: env.LOCAL_DB || (isTest ? "memory" : "disk"),
-  localDbPath: env.LOCAL_DB_PATH || fileURLToPath(new URL("../.data/db", import.meta.url)),
-  localDbPort: Number(env.LOCAL_DB_PORT) || 27018,
+  // PostgreSQL, e.g. postgres://postgres:PASSWORD@localhost:5432/jalaram
+  databaseUrl: isTest ? testDatabaseUrl() : env.DATABASE_URL || "",
 
   jwtSecret: env.JWT_SECRET || (isProd ? "" : "dev-only-secret-do-not-use-in-production"),
   userTokenTtl: env.USER_TOKEN_TTL || "7d",
@@ -91,7 +95,7 @@ config.razorpay.enabled = Boolean(config.razorpay.keyId && config.razorpay.keySe
 
 if (isProd) {
   const missing = [];
-  if (!config.mongoUri) missing.push("MONGODB_URI");
+  if (!config.databaseUrl) missing.push("DATABASE_URL");
   if (!/^[0-9a-f]{64}$/i.test(config.dataKey)) missing.push("DATA_KEY (64 hex characters)");
   if (!env.COLLECT_ACCOUNT_NUMBER || !env.COLLECT_ACCOUNT_IFSC || !env.COLLECT_UPI_ID) {
     missing.push("COLLECT_ACCOUNT_NUMBER, COLLECT_ACCOUNT_IFSC and COLLECT_UPI_ID (your real collection account)");

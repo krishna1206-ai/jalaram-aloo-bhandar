@@ -1,8 +1,8 @@
 import cors from "cors";
 import express from "express";
 import helmet from "helmet";
-import mongoose from "mongoose";
 import { config } from "./config.js";
+import { query } from "./db.js";
 import { errorHandler, notFound } from "./errors.js";
 import adminRoutes from "./routes/admin.js";
 import authRoutes from "./routes/auth.js";
@@ -27,8 +27,9 @@ export function createApp() {
 
   app.use(express.json({ limit: "100kb" }));
 
-  app.get("/api/health", (req, res) => {
-    res.json({ ok: true, db: mongoose.connection.readyState === 1 ? "connected" : "down" });
+  app.get("/api/health", async (req, res) => {
+    const db = await query("SELECT 1").then(() => "connected", () => "down");
+    res.status(db === "connected" ? 200 : 503).json({ ok: db === "connected", db });
   });
 
   // What the frontend needs to know about this server's setup
