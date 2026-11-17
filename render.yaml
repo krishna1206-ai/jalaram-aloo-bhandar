@@ -4,6 +4,8 @@ services:
   - type: web
     name: jalaram-api
     runtime: node
+    plan: free # no card needed; sleeps after 15 min idle and wakes on the next request (~1 min)
+    region: singapore # next to the Neon database (ap-southeast-1)
     rootDir: server
     buildCommand: npm ci --omit=dev
     startCommand: npm start
