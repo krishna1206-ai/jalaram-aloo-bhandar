@@ -19,7 +19,8 @@ function at(daysAgo, hhmm) {
   const d = new Date();
   d.setDate(d.getDate() - daysAgo);
   d.setHours(h, m, 0, 0);
-  return d;
+  // Never in the future: "today 11:20" seeded at 9 AM would otherwise sort above real new entries
+  return new Date(Math.min(d.getTime(), Date.now() - 60_000));
 }
 
 const DEMO_USERS = [

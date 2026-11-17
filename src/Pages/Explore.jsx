@@ -541,7 +541,6 @@ function Explore() {
                 }}
                 onKeyDown={(e) => e.key === "Enter" && confirmInvest()}
               />
-              {import.meta.env.DEV && <span className="muted small">Demo account PIN: 123456</span>}
 
               {investError && <p className="error">{investError}</p>}
 

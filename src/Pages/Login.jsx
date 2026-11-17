@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { login, verifyLogin } from "../auth.js";
 import { api } from "../api.js";
@@ -18,6 +18,17 @@ function Login() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
+  const [demoMode, setDemoMode] = useState(false); // server has the demo account
+
+  useEffect(() => {
+    let alive = true;
+    api("/config", { as: "none" })
+      .then((c) => alive && setDemoMode(Boolean(c.demoMode)))
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   const run = async (fn) => {
     setBusy(true);
@@ -203,7 +214,7 @@ function Login() {
             </button>
           )}
 
-          {import.meta.env.DEV && step === "login" && (
+          {demoMode && step === "login" && (
             <p className="demo-hint">
               Demo Login <strong>test@gmail.com</strong> / <strong>123456</strong>
             </p>

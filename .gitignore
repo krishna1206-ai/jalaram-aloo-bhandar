@@ -25,3 +25,6 @@ dist-ssr
 
 build
 .env
+
+# Local development database
+server/.data

@@ -37,6 +37,7 @@ export function createApp() {
       appName: config.appName,
       razorpayKeyId: config.razorpay.enabled ? config.razorpay.keyId : null,
       otpDevMode: config.otpDevMode,
+      demoMode: config.seedDemo, // demo users exist (test@gmail.com)
       otpChannels: { email: config.otpDevMode || emailEnabled(), mobile: config.otpDevMode || smsEnabled() },
       collectAccount: config.collectAccount,
     });

@@ -12,7 +12,7 @@ npm run dev          # API on http://localhost:5000/api
 
 Then start the frontend in another terminal from the project root with `npm run dev`. Vite forwards `/api` to port 5000.
 
-If `MONGODB_URI` is not set, the server starts a **temporary in-memory MongoDB** and loads demo data. Everything is lost when the server stops. To keep data, create `server/.env` from `.env.example` and set `MONGODB_URI` (for example a free MongoDB Atlas cluster).
+If `MONGODB_URI` is not set, the server starts a **local MongoDB that saves its data in `server/.data/db`**, so your data stays after a restart. On the very first start it loads the demo data. To start again with fresh demo data, use **Reset demo data** in the admin panel, or stop the server and delete the `server/.data` folder. For the online site, set `MONGODB_URI` to a MongoDB Atlas connection string instead.
 
 | Demo login | |
 |---|---|

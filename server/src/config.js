@@ -1,4 +1,5 @@
 import dotenv from "dotenv";
+import { fileURLToPath } from "node:url";
 
 dotenv.config({ quiet: true });
 
@@ -12,8 +13,12 @@ export const config = {
   isTest,
   port: Number(env.PORT) || 5000,
 
-  // Leave empty in development to use a temporary in-memory database.
+  // Leave empty in development to use a local database saved in server/.data (see LOCAL_DB).
   mongoUri: env.MONGODB_URI || "",
+  // Without MONGODB_URI: "disk" = local MongoDB that keeps data, "memory" = temporary (tests)
+  localDb: env.LOCAL_DB || (isTest ? "memory" : "disk"),
+  localDbPath: env.LOCAL_DB_PATH || fileURLToPath(new URL("../.data/db", import.meta.url)),
+  localDbPort: Number(env.LOCAL_DB_PORT) || 27018,
 
   jwtSecret: env.JWT_SECRET || (isProd ? "" : "dev-only-secret-do-not-use-in-production"),
   userTokenTtl: env.USER_TOKEN_TTL || "7d",
